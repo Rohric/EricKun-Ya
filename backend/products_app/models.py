@@ -46,3 +46,24 @@ class Product(models.Model):
     def profit(self):
         """Return the per-unit margin between sale and purchase price."""
         return self.sale_price - self.purchase_price
+
+
+def product_image_path(instance, filename):
+    """Return the upload path for a product image, grouped in a per-SKU folder."""
+    return f"products/{instance.product.sku}/{filename}"
+
+
+class ProductImage(models.Model):
+    """Store one image of a product; ordered, position 0 is the main image."""
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="images")
+    image = models.ImageField(upload_to=product_image_path)
+    position = models.PositiveIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        """Return a readable label for admin and shell."""
+        return f"{self.product.sku} #{self.position}"

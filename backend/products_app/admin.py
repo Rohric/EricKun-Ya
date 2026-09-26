@@ -2,7 +2,14 @@
 
 from django.contrib import admin
 
-from products_app.models import Product
+from products_app.models import Product, ProductImage
+
+
+class ProductImageInline(admin.TabularInline):
+    """Edit a product's images inline on the product page."""
+
+    model = ProductImage
+    extra = 1
 
 
 @admin.register(Product)
@@ -13,3 +20,4 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = ("sku", "title")
     list_filter = ("condition",)
     readonly_fields = ("sku", "created_at", "updated_at")
+    inlines = [ProductImageInline]

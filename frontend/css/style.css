@@ -133,6 +133,16 @@ label.inline input { width: 120px; margin-top: 0; }
 .toggle { text-align: center; margin: 16px 0 0; font-size: 0.85rem; }
 .toggle a { color: var(--accent); }
 
+/* Product images */
+.thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
+.no-thumb { color: var(--muted); }
+.image-section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.gallery { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.gallery-item { position: relative; }
+.gallery-item img { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.img-del { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--danger); font-size: 0.8rem; line-height: 1; }
+.img-del:hover { background: #b83232; }
+
 @media (max-width: 720px) {
   .form-grid, .tiles { grid-template-columns: 1fr; }
   .nav-inner { flex-wrap: wrap; gap: 12px; }

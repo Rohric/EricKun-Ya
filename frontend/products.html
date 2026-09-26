@@ -15,33 +15,45 @@
     </div>
     <div id="message" class="message" style="display:none"></div>
 
-    <form id="product-form" class="card form-grid" style="display:none">
-      <input type="hidden" id="product-id" />
-      <label>Titel<input type="text" id="p-title" required /></label>
-      <label>Zustand
-        <select id="p-condition">
-          <option value="new">Neu</option>
-          <option value="like_new">Wie neu</option>
-          <option value="very_good">Sehr gut</option>
-          <option value="good" selected>Gut</option>
-          <option value="acceptable">Akzeptabel</option>
-          <option value="for_parts">Defekt / Ersatzteile</option>
-        </select>
-      </label>
-      <label>Einkaufspreis (€)<input type="number" step="0.01" id="p-purchase" required /></label>
-      <label>Verkaufspreis (€)<input type="number" step="0.01" id="p-sale" required /></label>
-      <label>Menge<input type="number" id="p-quantity" value="1" min="0" /></label>
-      <label>Einkaufsdatum<input type="date" id="p-date" /></label>
-      <label class="full">Beschreibung<textarea id="p-description" rows="3"></textarea></label>
-      <div class="form-actions full">
+    <form id="product-form" class="card" style="display:none">
+      <div class="form-grid">
+        <input type="hidden" id="product-id" />
+        <label>Titel<input type="text" id="p-title" required /></label>
+        <label>Zustand
+          <select id="p-condition">
+            <option value="new">Neu</option>
+            <option value="like_new">Wie neu</option>
+            <option value="very_good">Sehr gut</option>
+            <option value="good" selected>Gut</option>
+            <option value="acceptable">Akzeptabel</option>
+            <option value="for_parts">Defekt / Ersatzteile</option>
+          </select>
+        </label>
+        <label>Einkaufspreis (€)<input type="number" step="0.01" id="p-purchase" required /></label>
+        <label>Verkaufspreis (€)<input type="number" step="0.01" id="p-sale" required /></label>
+        <label>Menge<input type="number" id="p-quantity" value="1" min="0" /></label>
+        <label>Einkaufsdatum<input type="date" id="p-date" /></label>
+        <label class="full">Beschreibung<textarea id="p-description" rows="3"></textarea></label>
+      </div>
+
+      <div class="form-actions">
         <button type="submit">Speichern</button>
-        <button type="button" id="cancel-product" class="secondary">Abbrechen</button>
+        <button type="button" id="cancel-product" class="secondary">Schließen</button>
+      </div>
+
+      <div class="image-section">
+        <h3>Bilder</h3>
+        <p id="image-hint" class="hint">Bilder können nach dem ersten Speichern hinzugefügt werden.</p>
+        <div id="image-gallery" class="gallery"></div>
+        <label class="full">Bilder hinzufügen
+          <input type="file" id="image-input" accept="image/*" multiple disabled />
+        </label>
       </div>
     </form>
 
     <table class="data-table">
       <thead>
-        <tr><th>SKU</th><th>Titel</th><th>Zustand</th><th>EK</th><th>VK</th><th>Gewinn</th><th>Menge</th><th></th></tr>
+        <tr><th>Bild</th><th>SKU</th><th>Titel</th><th>Zustand</th><th>EK</th><th>VK</th><th>Gewinn</th><th>Menge</th><th></th></tr>
       </thead>
       <tbody id="product-rows"></tbody>
     </table>

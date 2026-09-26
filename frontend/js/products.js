@@ -8,9 +8,12 @@ const CONDITION_LABELS = {
   good: "Gut", acceptable: "Akzeptabel", for_parts: "Defekt / Ersatzteile",
 };
 
+let currentProductId = null;
+
 document.getElementById("new-product-btn").addEventListener("click", () => _openForm());
 document.getElementById("cancel-product").addEventListener("click", _closeForm);
 document.getElementById("product-form").addEventListener("submit", _saveProduct);
+document.getElementById("image-input").addEventListener("change", _uploadImages);
 
 loadProducts();
 
@@ -26,6 +29,7 @@ async function loadProducts() {
 function _renderRows(products) {
   const rows = products.map((p) => `
     <tr>
+      <td>${_thumb(p)}</td>
       <td>${escapeHtml(p.sku)}</td>
       <td>${escapeHtml(p.title)}</td>
       <td>${CONDITION_LABELS[p.condition] || p.condition}</td>
@@ -39,8 +43,13 @@ function _renderRows(products) {
       </td>
     </tr>`).join("");
   document.getElementById("product-rows").innerHTML =
-    rows || `<tr><td colspan="8" class="empty">Noch keine Artikel.</td></tr>`;
+    rows || `<tr><td colspan="9" class="empty">Noch keine Artikel.</td></tr>`;
   _bindRowActions(products);
+}
+
+function _thumb(product) {
+  if (!product.images || !product.images.length) return '<span class="no-thumb">–</span>';
+  return `<img class="thumb" src="${product.images[0].image}" alt="" />`;
 }
 
 function _bindRowActions(products) {
@@ -54,14 +63,18 @@ function _bindRowActions(products) {
 
 function _openForm(product) {
   _fill(product);
-  document.getElementById("product-form").style.display = "grid";
+  currentProductId = product ? product.id : null;
+  _syncImageSection(product);
+  document.getElementById("product-form").style.display = "block";
   showMessage("", false);
 }
 
 function _closeForm() {
-  document.getElementById("product-form").reset();
+  const form = document.getElementById("product-form");
+  form.reset();
   document.getElementById("product-id").value = "";
-  document.getElementById("product-form").style.display = "none";
+  currentProductId = null;
+  form.style.display = "none";
 }
 
 function _fill(product) {
@@ -76,13 +89,37 @@ function _fill(product) {
   document.getElementById("p-condition").value = product ? product.condition : "good";
 }
 
+// Enable the image tools only once the product exists (upload needs its id).
+function _syncImageSection(product) {
+  const hasId = Boolean(product);
+  document.getElementById("image-input").disabled = !hasId;
+  document.getElementById("image-hint").style.display = hasId ? "none" : "block";
+  _renderGallery(product ? product.images : []);
+}
+
+function _renderGallery(images) {
+  const gallery = document.getElementById("image-gallery");
+  gallery.innerHTML = (images || []).map((img) => `
+    <div class="gallery-item">
+      <img src="${img.image}" alt="" />
+      <button type="button" class="img-del" data-img="${img.id}">✕</button>
+    </div>`).join("");
+  gallery.querySelectorAll("[data-img]").forEach((btn) =>
+    btn.addEventListener("click", () => _deleteImage(Number(btn.dataset.img)))
+  );
+}
+
 async function _saveProduct(e) {
   e.preventDefault();
   const id = document.getElementById("product-id").value;
   try {
-    if (id) await apiSend(`/products/${id}/`, "PATCH", _formPayload());
-    else await apiSend("/products/", "POST", _formPayload());
-    _closeForm();
+    const saved = id
+      ? await apiSend(`/products/${id}/`, "PATCH", _formPayload())
+      : await apiSend("/products/", "POST", _formPayload());
+    showMessage("Gespeichert.", false);
+    currentProductId = saved.id;
+    document.getElementById("product-id").value = saved.id;
+    _syncImageSection(saved);
     loadProducts();
   } catch (err) {
     showMessage(errorText(err));
@@ -101,10 +138,42 @@ function _formPayload() {
   };
 }
 
+// Upload each selected file to the current product, then refresh the gallery.
+async function _uploadImages(e) {
+  if (!currentProductId) return;
+  try {
+    for (const file of e.target.files) {
+      const data = new FormData();
+      data.append("image", file);
+      await apiUpload(`/products/${currentProductId}/images/`, data);
+    }
+    e.target.value = "";
+    await _refreshImages();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+}
+
+async function _deleteImage(imageId) {
+  try {
+    await apiDelete(`/product-images/${imageId}/`);
+    await _refreshImages();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+}
+
+// Reload the current product's images (gallery + table thumbnails).
+async function _refreshImages() {
+  _renderGallery(await apiGet(`/products/${currentProductId}/images/`));
+  loadProducts();
+}
+
 async function _deleteProduct(id) {
   if (!confirm("Diesen Artikel wirklich löschen?")) return;
   try {
     await apiDelete(`/products/${id}/`);
+    if (currentProductId === id) _closeForm();
     loadProducts();
   } catch (err) {
     showMessage(errorText(err));

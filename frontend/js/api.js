@@ -24,7 +24,11 @@ async function apiFetch(path, options = {}) {
 }
 
 function _fetchWithAuth(path, options) {
-  const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+  const headers = Object.assign({}, options.headers || {});
+  // FormData must set its own multipart boundary, so only default to JSON otherwise.
+  if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
   const access = getAccess();
   if (access) headers["Authorization"] = `Bearer ${access}`;
   return fetch(`${API_BASE_URL}${path}`, Object.assign({}, options, { headers }));
@@ -45,6 +49,11 @@ async function apiDelete(path) {
   const response = await apiFetch(path, { method: "DELETE" });
   if (!response.ok) throw new ApiError(response.status, await _safeJson(response));
   return true;
+}
+
+// Upload multipart form data (e.g. images) to an authenticated endpoint.
+async function apiUpload(path, formData) {
+  return _parse(await apiFetch(path, { method: "POST", body: formData }));
 }
 
 async function _parse(response) {

@@ -12,6 +12,10 @@ venv/
 db.sqlite3
 staticfiles/
 
+# User data (SQLite DB + uploaded media) — never commit
+data/
+media/
+
 # Environment / secrets
 .env
 
