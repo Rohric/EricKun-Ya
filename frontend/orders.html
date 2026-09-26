@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bestellungen – eBay-Tool</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="nav"></header>
+  <main class="page">
+    <div class="page-head">
+      <h1>Bestellungen</h1>
+      <button id="new-order-btn">+ Neue Bestellung</button>
+    </div>
+    <div id="message" class="message" style="display:none"></div>
+
+    <form id="order-form" class="card" style="display:none">
+      <div class="form-grid">
+        <label>Verkaufsdatum<input type="datetime-local" id="o-sold-at" required /></label>
+        <label>Tracking-Nummer<input type="text" id="o-tracking" /></label>
+      </div>
+      <h3>Positionen</h3>
+      <div id="item-rows"></div>
+      <button type="button" id="add-item" class="secondary">+ Position</button>
+      <div class="form-actions">
+        <button type="submit">Speichern</button>
+        <button type="button" id="cancel-order" class="secondary">Abbrechen</button>
+      </div>
+    </form>
+
+    <table class="data-table">
+      <thead>
+        <tr><th>#</th><th>Verkauft am</th><th>Status</th><th>Umsatz</th><th>Gewinn</th><th>Tracking</th><th>Positionen</th></tr>
+      </thead>
+      <tbody id="order-rows"></tbody>
+    </table>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/orders.js"></script>
+</body>
+</html>
