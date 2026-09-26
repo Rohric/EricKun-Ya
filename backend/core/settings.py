@@ -11,6 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
+# All user data (SQLite DB + uploaded media) lives under one configurable folder.
+# On the desktop build this points to the location the user picks on first start.
+DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Security / core config (env-driven, with dev-friendly defaults).
 SECRET_KEY = os.environ.get(
@@ -79,7 +84,7 @@ AUTH_USER_MODEL = "auth_app.User"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": DATA_DIR / "db.sqlite3",
     }
 }
 
@@ -134,6 +139,10 @@ USE_TZ = True
 
 # Static files
 STATIC_URL = "static/"
+
+# Media (user-uploaded files) live under the configurable data folder.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = DATA_DIR / "media"
 
 # Email (console backend for development)
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
