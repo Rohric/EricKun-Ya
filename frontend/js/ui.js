@@ -9,11 +9,9 @@ function renderNav(active) {
     ["products.html", "Artikel"],
     ["orders.html", "Bestellungen"],
   ];
-  const items = links.map(([href, label]) =>
-    `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`
-  ).join("");
+  const items = links.map(([href, label]) => `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`).join("");
   nav.innerHTML = `<div class="nav-inner">
-      <span class="brand">eBay-Tool</span>
+      <span class="brand">EricKun-Ya</span>
       <div class="nav-links">${items}</div>
       <button id="logout-btn" class="link-btn">Logout</button>
     </div>`;
