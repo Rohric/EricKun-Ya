@@ -1,4 +1,4 @@
-"""Business logic for financial reports and goal progress."""
+"""Business logic for financial reports, the tax breakdown and goal progress."""
 
 from datetime import date, timedelta
 from decimal import Decimal
@@ -35,7 +35,7 @@ def revenue_for_period(start, end):
 
 
 def profit_for_period(start, end):
-    """Return total profit (sale minus purchase) for the given date range."""
+    """Return total gross profit (sale minus purchase) for the given date range."""
     total = _items_in_period(start, end).aggregate(s=Sum(_PROFIT_EXPR))["s"]
     return total or Decimal("0")
 
@@ -52,6 +52,19 @@ def tax_reserve(profit):
     """Return the suggested tax reserve for a profit amount."""
     rate = FinanceSettings.load().tax_reserve_rate
     return (profit * rate / Decimal("100")).quantize(Decimal("0.01"))
+
+
+def financial_summary(start, end):
+    """Return revenue, expenses and the gross/reserve/net profit breakdown for a period."""
+    gross = profit_for_period(start, end)
+    reserve = tax_reserve(gross)
+    return {
+        "revenue": revenue_for_period(start, end),
+        "expenses": purchase_expenses_for_period(start, end),
+        "gross_profit": gross,
+        "tax_reserve": reserve,
+        "net_profit": gross - reserve,
+    }
 
 
 def _month_bounds(year, month):

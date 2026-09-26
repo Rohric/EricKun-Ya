@@ -8,8 +8,11 @@ function renderNav(active) {
     ["dashboard.html", "Dashboard"],
     ["products.html", "Artikel"],
     ["orders.html", "Bestellungen"],
+    ["finances.html", "Finanzen"],
   ];
-  const items = links.map(([href, label]) => `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`).join("");
+  const items = links.map(([href, label]) =>
+    `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`
+  ).join("");
   nav.innerHTML = `<div class="nav-inner">
       <span class="brand">EricKun-Ya</span>
       <div class="nav-links">${items}</div>
@@ -49,4 +52,21 @@ function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value == null ? "" : String(value);
   return div.innerHTML;
+}
+
+// Return a local YYYY-MM-DD string for a Date.
+function isoDate(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Return {from, to} ISO dates for a named period preset (today/month/year/all).
+function periodRange(preset) {
+  const today = new Date();
+  if (preset === "today") return { from: isoDate(today), to: isoDate(today) };
+  if (preset === "month") {
+    return { from: isoDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: isoDate(today) };
+  }
+  if (preset === "all") return { from: "2000-01-01", to: isoDate(today) };
+  return { from: `${today.getFullYear()}-01-01`, to: isoDate(today) };
 }

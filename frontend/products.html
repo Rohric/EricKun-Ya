@@ -1,26 +1,61 @@
 <!DOCTYPE html>
 <html lang="de">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Artikel – EricKun-Ya</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
-
 <body>
   <header id="nav"></header>
   <main class="page">
     <div class="page-head">
       <h1>Artikel</h1>
-      <button id="new-product-btn">+ Neuer Artikel</button>
+      <div class="head-actions">
+        <div class="view-switch" id="view-switch">
+          <button data-view="active" class="active">Aktiv</button>
+          <button data-view="archive">Archiv</button>
+        </div>
+        <button id="manage-cats-btn" class="secondary">Kategorien</button>
+        <button id="new-product-btn">+ Neuer Artikel</button>
+      </div>
     </div>
     <div id="message" class="message" style="display:none"></div>
+
+    <section id="cat-manager" class="card" style="display:none">
+      <h2>Kategorien verwalten</h2>
+      <div class="form-grid">
+        <label>Neue Oberkategorie
+          <span class="inline-add">
+            <input type="text" id="new-parent-name" placeholder="z.B. Elektronik" />
+            <button type="button" id="add-parent" class="secondary">Anlegen</button>
+          </span>
+        </label>
+        <label>Neue Unterkategorie
+          <span class="inline-add">
+            <select id="sub-parent-select"></select>
+            <input type="text" id="new-sub-name" placeholder="z.B. Kameras" />
+            <button type="button" id="add-sub" class="secondary">Anlegen</button>
+          </span>
+        </label>
+      </div>
+      <div id="cat-list" class="cat-list"></div>
+    </section>
 
     <form id="product-form" class="card" style="display:none">
       <div class="form-grid">
         <input type="hidden" id="product-id" />
         <label>Titel<input type="text" id="p-title" required /></label>
+        <label>Status
+          <select id="p-status">
+            <option value="available">Verfügbar</option>
+            <option value="reserved">Reserviert</option>
+            <option value="sold">Verkauft</option>
+            <option value="archived">Archiviert</option>
+          </select>
+        </label>
+        <label>Oberkategorie<select id="p-parent-cat"></select></label>
+        <label>Unterkategorie<select id="p-sub-cat"></select></label>
         <label>Zustand
           <select id="p-condition">
             <option value="new">Neu</option>
@@ -31,9 +66,9 @@
             <option value="for_parts">Defekt / Ersatzteile</option>
           </select>
         </label>
+        <label>Menge<input type="number" id="p-quantity" value="1" min="0" /></label>
         <label>Einkaufspreis (€)<input type="number" step="0.01" id="p-purchase" required /></label>
         <label>Verkaufspreis (€)<input type="number" step="0.01" id="p-sale" required /></label>
-        <label>Menge<input type="number" id="p-quantity" value="1" min="0" /></label>
         <label>Einkaufsdatum<input type="date" id="p-date" /></label>
         <label class="full">Beschreibung<textarea id="p-description" rows="3"></textarea></label>
       </div>
@@ -56,15 +91,8 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>Bild</th>
-          <th>SKU</th>
-          <th>Titel</th>
-          <th>Zustand</th>
-          <th>EK</th>
-          <th>VK</th>
-          <th>Gewinn</th>
-          <th>Menge</th>
-          <th></th>
+          <th>Bild</th><th>SKU</th><th>Titel</th><th>Kategorie</th><th>Status</th>
+          <th>Zustand</th><th>EK</th><th>VK</th><th>Gewinn</th><th>Menge</th><th></th>
         </tr>
       </thead>
       <tbody id="product-rows"></tbody>
@@ -77,5 +105,4 @@
   <script src="js/ui.js"></script>
   <script src="js/products.js"></script>
 </body>
-
 </html>

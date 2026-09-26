@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="de">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bestellungen – EricKun-Ya</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
-
 <body>
   <header id="nav"></header>
   <main class="page">
@@ -18,13 +16,36 @@
     <div id="message" class="message" style="display:none"></div>
 
     <form id="order-form" class="card" style="display:none">
+      <input type="hidden" id="order-id" />
       <div class="form-grid">
         <label>Verkaufsdatum<input type="datetime-local" id="o-sold-at" required /></label>
+        <label>Status
+          <select id="o-status">
+            <option value="open">Offen</option>
+            <option value="packed">Verpackt</option>
+            <option value="shipped">Verschickt</option>
+            <option value="delivered">Zugestellt</option>
+            <option value="in_return">In Reklamation</option>
+          </select>
+        </label>
+        <label>Käufername<input type="text" id="o-buyer" /></label>
+        <label>eBay-Benutzername<input type="text" id="o-ebay" /></label>
+        <label>Straße<input type="text" id="o-street" /></label>
+        <label>PLZ<input type="text" id="o-zip" /></label>
+        <label>Ort<input type="text" id="o-city" /></label>
+        <label>Land<input type="text" id="o-country" /></label>
         <label>Tracking-Nummer<input type="text" id="o-tracking" /></label>
+        <label class="full" id="reklamation-wrap" style="display:none">Reklamations-Notiz
+          <textarea id="o-reklamation" rows="2"></textarea>
+        </label>
       </div>
-      <h3>Positionen</h3>
-      <div id="item-rows"></div>
-      <button type="button" id="add-item" class="secondary">+ Position</button>
+
+      <div id="items-section">
+        <h3>Positionen</h3>
+        <div id="item-rows"></div>
+        <button type="button" id="add-item" class="secondary">+ Position</button>
+      </div>
+
       <div class="form-actions">
         <button type="submit">Speichern</button>
         <button type="button" id="cancel-order" class="secondary">Abbrechen</button>
@@ -34,18 +55,27 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Verkauft am</th>
-          <th>Status</th>
-          <th>Umsatz</th>
-          <th>Gewinn</th>
-          <th>Tracking</th>
-          <th>Positionen</th>
+          <th>#</th><th>Verkauft am</th><th>Status</th><th>Kunde</th><th>Ort</th>
+          <th>Umsatz</th><th>Gewinn</th><th>Positionen</th><th></th>
         </tr>
       </thead>
       <tbody id="order-rows"></tbody>
     </table>
   </main>
+
+  <div id="cancel-modal" class="modal" style="display:none">
+    <div class="modal-card">
+      <h3>Bestellung stornieren</h3>
+      <p class="hint">Der Bestand wird zurückgebucht. Was soll mit den Artikeln passieren?</p>
+      <label class="radio"><input type="radio" name="item-action" value="available" checked /> Wieder verfügbar</label>
+      <label class="radio"><input type="radio" name="item-action" value="archive" /> Ins Archiv</label>
+      <label class="radio"><input type="radio" name="item-action" value="delete" /> Artikel löschen</label>
+      <div class="form-actions">
+        <button type="button" id="confirm-cancel" class="danger-btn">Stornieren</button>
+        <button type="button" id="abort-cancel" class="secondary">Abbrechen</button>
+      </div>
+    </div>
+  </div>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
@@ -53,5 +83,4 @@
   <script src="js/ui.js"></script>
   <script src="js/orders.js"></script>
 </body>
-
 </html>

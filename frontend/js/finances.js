@@ -1,38 +1,67 @@
 "use strict";
 
 requireAuth();
-renderNav("dashboard.html");
+renderNav("finances.html");
 
 const MONTHS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
 const YEAR = new Date().getFullYear();
+
+let range = periodRange("year");
 
 document.getElementById("year-label").textContent = YEAR;
 document.getElementById("save-reserve").addEventListener("click", _saveReserve);
 document.getElementById("new-goal-btn").addEventListener("click", _toggleGoalForm);
 document.getElementById("cancel-goal").addEventListener("click", _toggleGoalForm);
 document.getElementById("goal-form").addEventListener("submit", _saveGoal);
+document.getElementById("apply-range").addEventListener("click", _applyCustomRange);
+document.querySelectorAll("#period-switch button").forEach((btn) =>
+  btn.addEventListener("click", () => _selectPeriod(btn.dataset.period))
+);
 
 init();
 
-// Load all dashboard sections in parallel.
 async function init() {
   try {
-    await Promise.all([_loadProfitLoss(), _loadMonthly(), _loadSettings(), _loadGoals()]);
+    await Promise.all([_loadSummary(), _loadMonthly(), _loadSettings(), _loadGoals()]);
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
-async function _loadProfitLoss() {
-  const data = await apiGet(`/finance/reports/profit-loss/?from=${YEAR}-01-01&to=${YEAR}-12-31`);
-  const tiles = [
-    ["Umsatz", data.revenue], ["Gewinn", data.profit],
-    ["Einkauf", data.expenses], ["Rücklage", data.tax_reserve],
-  ];
+function _selectPeriod(preset) {
+  range = periodRange(preset);
+  document.querySelectorAll("#period-switch button").forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset.period === preset)
+  );
+  _loadSummary().catch((err) => showMessage(errorText(err)));
+}
+
+function _applyCustomRange() {
+  const from = document.getElementById("range-from").value;
+  const to = document.getElementById("range-to").value;
+  if (!from || !to) return showMessage("Bitte von und bis wählen.");
+  range = { from, to };
+  document.querySelectorAll("#period-switch button").forEach((btn) => btn.classList.remove("active"));
+  _loadSummary().catch((err) => showMessage(errorText(err)));
+}
+
+// Load the tax breakdown + revenue/expense tiles for the current range.
+async function _loadSummary() {
+  const data = await apiGet(`/finance/reports/profit-loss/?from=${range.from}&to=${range.to}`);
+  _renderTax(data);
+  const tiles = [["Umsatz", data.revenue], ["Einkauf", data.expenses]];
   document.getElementById("pl-tiles").innerHTML = tiles.map(([label, value]) =>
     `<div class="tile"><span class="tile-label">${label}</span>
      <span class="tile-value">${formatEuro(value)}</span></div>`
   ).join("");
+}
+
+function _renderTax(data) {
+  document.getElementById("tax-period").textContent = `(${range.from} – ${range.to})`;
+  document.getElementById("tax-gross").textContent = formatEuro(data.gross_profit);
+  document.getElementById("tax-rate").textContent = data.tax_rate;
+  document.getElementById("tax-reserve").textContent = formatEuro(data.tax_reserve);
+  document.getElementById("tax-net").textContent = formatEuro(data.net_profit);
 }
 
 async function _loadMonthly() {
@@ -55,7 +84,7 @@ async function _saveReserve() {
   try {
     await apiSend("/finance/settings/", "PATCH", { tax_reserve_rate: document.getElementById("reserve-rate").value });
     showMessage("Rücklagensatz gespeichert.", false);
-    _loadProfitLoss();
+    _loadSummary();
   } catch (err) {
     showMessage(errorText(err));
   }

@@ -4,17 +4,42 @@ from rest_framework import generics
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
-from products_app.models import Product, ProductImage
+from products_app.models import Category, Product, ProductImage
 
-from .serializers import ProductImageSerializer, ProductSerializer
+from .serializers import CategorySerializer, ProductImageSerializer, ProductSerializer
+
+
+class CategoryList(generics.ListCreateAPIView):
+    """List all categories or create a new one."""
+
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated]
+
+
+class CategoryDetail(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a single category."""
+
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated]
 
 
 class ProductList(generics.ListCreateAPIView):
-    """List all products or create a new one."""
+    """List active products (or the archive with ?view=archive) and create products."""
 
-    queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Return active products by default; ?view=archive|all switches the scope."""
+        archive = [Product.Status.SOLD, Product.Status.ARCHIVED]
+        view = self.request.query_params.get("view", "active")
+        if view == "archive":
+            return Product.objects.filter(status__in=archive)
+        if view == "all":
+            return Product.objects.all()
+        return Product.objects.exclude(status__in=archive)
 
 
 class ProductDetail(generics.RetrieveUpdateDestroyAPIView):

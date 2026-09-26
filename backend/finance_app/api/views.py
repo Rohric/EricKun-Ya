@@ -41,22 +41,20 @@ class FinanceSettingsView(generics.RetrieveUpdateAPIView):
 
 
 class ProfitLossView(APIView):
-    """Return revenue, profit, expenses and tax reserve for a date range."""
+    """Return revenue, expenses and the gross/reserve/net profit breakdown for a date range."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Compute the profit/loss summary for ?from=&to= (ISO dates)."""
+        """Compute the tax breakdown for ?from=&to= (ISO dates)."""
         start, end = _parse_range(request)
-        profit = services.profit_for_period(start, end)
-        return Response({
+        data = services.financial_summary(start, end)
+        data.update({
             "from": start,
             "to": end,
-            "revenue": services.revenue_for_period(start, end),
-            "profit": profit,
-            "expenses": services.purchase_expenses_for_period(start, end),
-            "tax_reserve": services.tax_reserve(profit),
+            "tax_rate": FinanceSettings.load().tax_reserve_rate,
         })
+        return Response(data)
 
 
 class MonthlyRevenueView(APIView):

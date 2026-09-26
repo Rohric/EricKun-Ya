@@ -3,6 +3,28 @@
 from django.db import models
 
 
+class Category(models.Model):
+    """Store an internal category; a self-referential parent forms the sub-category tree."""
+
+    name = models.CharField(max_length=100)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = ("parent", "name")
+        verbose_name_plural = "categories"
+
+    def __str__(self):
+        """Return the readable category path (parent › child)."""
+        return f"{self.parent} › {self.name}" if self.parent_id else self.name
+
+
 class Product(models.Model):
     """Store the platform-neutral truth about a sellable article."""
 
@@ -14,13 +36,31 @@ class Product(models.Model):
         ACCEPTABLE = "acceptable", "Akzeptabel"
         FOR_PARTS = "for_parts", "Defekt / Ersatzteile"
 
+    class Status(models.TextChoices):
+        AVAILABLE = "available", "Verfügbar"
+        RESERVED = "reserved", "Reserviert"
+        SOLD = "sold", "Verkauft"
+        ARCHIVED = "archived", "Archiviert"
+
     sku = models.CharField(max_length=64, unique=True, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+    )
     condition = models.CharField(
         max_length=16,
         choices=Condition.choices,
         default=Condition.GOOD,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.AVAILABLE,
     )
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
     sale_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -46,6 +86,11 @@ class Product(models.Model):
     def profit(self):
         """Return the per-unit margin between sale and purchase price."""
         return self.sale_price - self.purchase_price
+
+    @property
+    def category_path(self):
+        """Return the readable category path, or an empty string if unset."""
+        return str(self.category) if self.category_id else ""
 
 
 def product_image_path(instance, filename):
