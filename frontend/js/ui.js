@@ -54,6 +54,63 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+// Return the trimmed value of the form field with the given id.
+function inputValue(id) {
+  return document.getElementById(id).value.trim();
+}
+
+// Highlight the button of a switch whose data-<key> equals value.
+function markActive(switchId, key, value) {
+  document.querySelectorAll(`#${switchId} button`).forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset[key] === value)
+  );
+}
+
+// Render [label, amount] pairs as euro tiles into a container.
+function renderTiles(containerId, tiles) {
+  document.getElementById(containerId).innerHTML = tiles.map(([label, value]) =>
+    `<div class="tile"><span class="tile-label">${label}</span>
+     <span class="tile-value">${formatEuro(value)}</span></div>`
+  ).join("");
+}
+
+// Return the HTML card of a goal; withActions adds edit/toggle/delete buttons.
+function renderGoalCard(goal, withActions = false) {
+  const percent = Math.min(Number(goal.progress.percent), 100);
+  const metric = goal.metric === "profit" ? "Gewinn" : "Umsatz";
+  return `
+    <div class="goal ${goal.is_active ? "" : "inactive"}">
+      <div class="goal-head">
+        <strong>${escapeHtml(goal.title)}${goal.is_active ? "" : " (inaktiv)"}</strong>
+        <span>${formatEuro(goal.progress.current)} / ${formatEuro(goal.target_amount)} (${metric})</span>
+      </div>
+      <div class="progress"><div class="progress-bar" style="width:${percent}%"></div></div>
+      <span class="goal-percent">${goal.progress.percent}%</span>
+      ${withActions ? _goalActions(goal) : ""}
+    </div>`;
+}
+
+function _goalActions(goal) {
+  return `<div class="goal-actions">
+      <button type="button" class="link-btn" data-goal-edit="${goal.id}">Bearbeiten</button>
+      <button type="button" class="link-btn" data-goal-toggle="${goal.id}">${goal.is_active ? "Deaktivieren" : "Aktivieren"}</button>
+      <button type="button" class="link-btn danger" data-goal-del="${goal.id}">Löschen</button>
+    </div>`;
+}
+
+// Render a pager for a paginated DRF response and call onChange(page) on click.
+function renderPager(containerId, data, page, onChange) {
+  const box = document.getElementById(containerId);
+  const pages = Math.max(Math.ceil(data.count / PAGE_SIZE), 1);
+  box.innerHTML = `
+    <button type="button" class="secondary" data-page="${page - 1}" ${data.previous ? "" : "disabled"}>← Zurück</button>
+    <span>Seite ${page} von ${pages} · ${data.count} Einträge</span>
+    <button type="button" class="secondary" data-page="${page + 1}" ${data.next ? "" : "disabled"}>Weiter →</button>`;
+  box.querySelectorAll("[data-page]").forEach((btn) =>
+    btn.addEventListener("click", () => onChange(Number(btn.dataset.page)))
+  );
+}
+
 // Return a local YYYY-MM-DD string for a Date.
 function isoDate(d) {
   const p = (n) => String(n).padStart(2, "0");

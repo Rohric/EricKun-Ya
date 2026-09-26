@@ -9,30 +9,44 @@ const FULFILLMENT = {
 };
 
 let productsCache = [];
+let currentPage = 1;
 let cancelOrderId = null;
 
 document.getElementById("new-order-btn").addEventListener("click", _openNewForm);
 document.getElementById("cancel-order").addEventListener("click", _closeForm);
 document.getElementById("add-item").addEventListener("click", () => _addItemRow());
 document.getElementById("order-form").addEventListener("submit", _saveOrder);
-document.getElementById("o-status").addEventListener("change", _syncReklamation);
+document.getElementById("o-status").addEventListener("change", _syncReturnNote);
 document.getElementById("confirm-cancel").addEventListener("click", _confirmCancel);
 document.getElementById("abort-cancel").addEventListener("click", _closeCancelModal);
 
 init();
 
-// Load available products (for new-order positions) and the orders.
 async function init() {
   try {
-    productsCache = await apiGet("/products/?view=active");
+    await _loadProductsCache();
     await loadOrders();
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
+// Load active products that still have stock (for new-order positions).
+async function _loadProductsCache() {
+  productsCache = (await apiGet("/products/?view=active")).filter((p) => p.quantity > 0);
+}
+
+// --- Order list + paging ---
+
 async function loadOrders() {
-  _renderRows(await apiGet("/orders/"));
+  const data = await apiGet(`/orders/?page=${currentPage}`);
+  _renderRows(data.results);
+  renderPager("order-pager", data, currentPage, _goToPage);
+}
+
+function _goToPage(page) {
+  currentPage = page;
+  loadOrders().catch((err) => showMessage(errorText(err)));
 }
 
 function _renderRows(orders) {
@@ -65,24 +79,24 @@ function _itemSummary(items) {
 }
 
 function _bindRowActions(orders) {
-  document.querySelectorAll("[data-edit]").forEach((btn) =>
-    btn.addEventListener("click", () => _openEditForm(orders.find((o) => o.id === Number(btn.dataset.edit))))
+  const bind = (attr, handler) => document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
+    btn.addEventListener("click", () => handler(Number(btn.getAttribute(`data-${attr}`))))
   );
-  document.querySelectorAll("[data-cancel]").forEach((btn) =>
-    btn.addEventListener("click", () => _openCancelModal(Number(btn.dataset.cancel)))
-  );
+  bind("edit", (id) => _openEditForm(orders.find((o) => o.id === id)));
+  bind("cancel", _openCancelModal);
 }
 
 // --- Form ---
 
 function _openNewForm() {
+  if (!productsCache.length) return showMessage("Kein Artikel mit Bestand verfügbar.");
   const form = document.getElementById("order-form");
   form.reset();
   document.getElementById("order-id").value = "";
-  document.getElementById("items-section").style.display = "block";
   document.getElementById("item-rows").innerHTML = "";
+  _setItemsEditable(true);
   _addItemRow();
-  _syncReklamation();
+  _syncReturnNote();
   form.style.display = "block";
   showMessage("", false);
 }
@@ -99,11 +113,17 @@ function _openEditForm(order) {
   set("o-zip", order.ship_zip);
   set("o-city", order.ship_city);
   set("o-country", order.ship_country);
-  set("o-reklamation", order.reklamation_note);
-  document.getElementById("items-section").style.display = "none";  // positions are fixed after creation
-  _syncReklamation();
+  set("o-return-note", order.return_note);
+  _setItemsEditable(false);
+  _syncReturnNote();
   document.getElementById("order-form").style.display = "block";
   showMessage("", false);
+}
+
+// Show the position editor when creating, the 'positions are fixed' hint when editing.
+function _setItemsEditable(editable) {
+  document.getElementById("items-section").style.display = editable ? "block" : "none";
+  document.getElementById("items-locked-hint").style.display = editable ? "none" : "block";
 }
 
 function _closeForm() {
@@ -111,41 +131,43 @@ function _closeForm() {
   document.getElementById("order-form").style.display = "none";
 }
 
-function _syncReklamation() {
-  const show = document.getElementById("o-status").value === "in_return";
-  document.getElementById("reklamation-wrap").style.display = show ? "block" : "none";
+function _syncReturnNote() {
+  const show = inputValue("o-status") === "in_return";
+  document.getElementById("return-note-wrap").style.display = show ? "block" : "none";
 }
 
 async function _saveOrder(e) {
   e.preventDefault();
-  const id = document.getElementById("order-id").value;
+  const id = inputValue("order-id");
   try {
-    if (id) {
-      await apiSend(`/orders/${id}/`, "PATCH", _orderFields());
-    } else {
-      const items = _collectItems();
-      if (!items.length) return showMessage("Mindestens eine Position nötig.");
-      await apiSend("/orders/", "POST", Object.assign(_orderFields(), { items }));
-    }
+    if (id) await apiSend(`/orders/${id}/`, "PATCH", _orderFields());
+    else await _createOrder();
     _closeForm();
-    loadOrders();
+    await Promise.all([loadOrders(), _loadProductsCache()]);
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
+async function _createOrder() {
+  const items = _collectItems();
+  if (!items.length) throw new ApiError(400, "Mindestens eine Position nötig.");
+  await apiSend("/orders/", "POST", Object.assign(_orderFields(), { items }));
+  currentPage = 1;
+}
+
 function _orderFields() {
   return {
-    sold_at: new Date(document.getElementById("o-sold-at").value).toISOString(),
-    fulfillment_status: document.getElementById("o-status").value,
-    tracking_number: _val("o-tracking"),
-    ebay_username: _val("o-ebay"),
-    buyer_name: _val("o-buyer"),
-    ship_street: _val("o-street"),
-    ship_zip: _val("o-zip"),
-    ship_city: _val("o-city"),
-    ship_country: _val("o-country"),
-    reklamation_note: _val("o-reklamation"),
+    sold_at: new Date(inputValue("o-sold-at")).toISOString(),
+    fulfillment_status: inputValue("o-status"),
+    tracking_number: inputValue("o-tracking"),
+    ebay_username: inputValue("o-ebay"),
+    buyer_name: inputValue("o-buyer"),
+    ship_street: inputValue("o-street"),
+    ship_zip: inputValue("o-zip"),
+    ship_city: inputValue("o-city"),
+    ship_country: inputValue("o-country"),
+    return_note: inputValue("o-return-note"),
   };
 }
 
@@ -153,7 +175,7 @@ function _orderFields() {
 
 function _addItemRow() {
   const options = productsCache.map((p) =>
-    `<option value="${p.id}">${escapeHtml(p.title)} (${escapeHtml(p.sku)})</option>`
+    `<option value="${p.id}">${escapeHtml(p.title)} (${escapeHtml(p.sku)}) – ${p.quantity} verfügbar</option>`
   ).join("");
   const row = document.createElement("div");
   row.className = "item-row";
@@ -163,7 +185,20 @@ function _addItemRow() {
     <input type="number" class="item-qty" value="1" min="1" />
     <button type="button" class="link-btn danger remove-item">✕</button>`;
   row.querySelector(".remove-item").addEventListener("click", () => row.remove());
+  _syncItemRow(row);
   document.getElementById("item-rows").appendChild(row);
+}
+
+// Prefill the sale price and cap the quantity at the selected product's stock.
+function _syncItemRow(row) {
+  const select = row.querySelector(".item-product");
+  const sync = () => {
+    const product = productsCache.find((p) => p.id === Number(select.value));
+    row.querySelector(".item-qty").max = product ? product.quantity : 1;
+    row.querySelector(".item-price").value = product ? product.sale_price : "";
+  };
+  select.addEventListener("change", sync);
+  sync();
 }
 
 function _collectItems() {
@@ -192,7 +227,7 @@ async function _confirmCancel() {
     await apiSend(`/orders/${cancelOrderId}/cancel/`, "POST", { item_action: action });
     _closeCancelModal();
     showMessage("Bestellung storniert.", false);
-    loadOrders();
+    await Promise.all([loadOrders(), _loadProductsCache()]);
   } catch (err) {
     showMessage(errorText(err));
   }
@@ -205,9 +240,5 @@ function _formatDate(iso) {
 function _toLocalInput(iso) {
   const d = new Date(iso);
   const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function _val(id) {
-  return document.getElementById(id).value.trim();
+  return `${isoDate(d)}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }

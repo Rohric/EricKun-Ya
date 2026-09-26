@@ -1,14 +1,15 @@
 """Business logic for financial reports, the tax breakdown and goal progress."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Sum
-
-from products_app.models import Product
-from orders_app.models import OrderItem
+from django.db.models.functions import TruncMonth
+from django.utils import timezone
 
 from finance_app.models import FinanceSettings
+from orders_app.models import Order, OrderItem
+from products_app.models import Product
 
 _REVENUE_EXPR = ExpressionWrapper(
     F("sold_price") * F("quantity"),
@@ -20,12 +21,21 @@ _PROFIT_EXPR = ExpressionWrapper(
 )
 
 
+def _day_bounds(start, end):
+    """Return aware datetimes [start 00:00, end+1 00:00) so the sold_at index is usable."""
+    tz = timezone.get_current_timezone()
+    lower = timezone.make_aware(datetime.combine(start, time.min), tz)
+    upper = timezone.make_aware(datetime.combine(end + timedelta(days=1), time.min), tz)
+    return lower, upper
+
+
 def _items_in_period(start, end):
-    """Return order items whose order was sold within [start, end]."""
+    """Return line items of non-cancelled orders sold within [start, end]."""
+    lower, upper = _day_bounds(start, end)
     return OrderItem.objects.filter(
-        order__sold_at__date__gte=start,
-        order__sold_at__date__lte=end,
-    )
+        order__sold_at__gte=lower,
+        order__sold_at__lt=upper,
+    ).exclude(order__fulfillment_status=Order.Fulfillment.CANCELLED)
 
 
 def revenue_for_period(start, end):
@@ -67,17 +77,16 @@ def financial_summary(start, end):
     }
 
 
-def _month_bounds(year, month):
-    """Return the first and last day of the given month."""
-    start = date(year, month, 1)
-    if month == 12:
-        return start, date(year, 12, 31)
-    return start, date(year, month + 1, 1) - timedelta(days=1)
-
-
 def monthly_revenue(year):
-    """Return a list of 12 revenue totals, one per month of the year."""
-    return [revenue_for_period(*_month_bounds(year, month)) for month in range(1, 13)]
+    """Return 12 revenue totals (one per month) using a single grouped query."""
+    rows = (
+        _items_in_period(date(year, 1, 1), date(year, 12, 31))
+        .annotate(month=TruncMonth("order__sold_at"))
+        .values("month")
+        .annotate(total=Sum(_REVENUE_EXPR))
+    )
+    totals = {row["month"].month: row["total"] for row in rows}
+    return [totals.get(month, Decimal("0")) for month in range(1, 13)]
 
 
 def _goal_bounds(goal):

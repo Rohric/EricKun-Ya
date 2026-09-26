@@ -1,44 +1,54 @@
 # core
 
-Projekt- und Settings-Modul (Emils Konvention: heißt immer `core`). Enthält **kein
-eigenes Model** und keine fachlichen Endpoints – nur die zentrale Konfiguration und das
-URL-Routing, an dem alle Apps hängen.
+Projekt- und Settings-Modul (Konvention: heißt immer `core`). Hält die zentrale
+Konfiguration, das URL-Routing und die DRF-Bausteine, die alle Apps teilen.
 
-## Aufgabe
+## Aufgaben
 
-- Zentrale Django-Konfiguration (`settings.py`)
-- Haupt-URL-Routing (`urls.py`) – bindet alle App-APIs unter `/api/` ein
-- Projektweites DRF-Fehlerhandling (`exceptions.py`)
-- WSGI/ASGI-Einstiegspunkte
+- Zentrale Django-Konfiguration (`settings.py`), gesteuert über `backend/.env`
+- Routing aller App-APIs unter `/api/`
+- Einheitliches Fehlerformat für die API
+- Optionale Pagination für Listen-Endpoints
+- Im DEBUG-Betrieb: Auslieferung von Frontend und hochgeladenen Bildern, damit ein
+  einziges `runserver` reicht
 
-## Wichtige Einstellungen
+## Models
 
-- **Custom User:** `AUTH_USER_MODEL = "auth_app.User"`
-- **DRF:** JWT-Authentifizierung + `IsAuthenticated` als Default, zentraler
-  `EXCEPTION_HANDLER` (kein try/except pro View)
-- **JWT (`SIMPLE_JWT`):** Access-Token 60 min, Refresh-Token 7 Tage, Rotation + Blacklist
-- **CORS:** `CORS_ALLOWED_ORIGINS` für das Angular-Frontend (Default `http://localhost:4200`)
-- **Config über Umgebungsvariablen** (`.env`, via `python-dotenv`): `SECRET_KEY`, `DEBUG`,
-  `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `TAX_RESERVE_RATE`
-- **Datenbank:** SQLite für lokale Entwicklung; per `DB_ENGINE=postgres` auf PostgreSQL
-  umstellbar (für das Deployment)
+Keine.
 
-## Endpoints
+## Services / Logik
 
-| Pfad | Zweck |
-|---|---|
-| `/admin/` | Django-Admin |
-| `/api/…` | Sammelpunkt aller App-APIs (siehe die READMEs der einzelnen Apps) |
+- **`exceptions.api_exception_handler`** – verpackt jeden DRF-Fehler als `{"error": …}`;
+  deshalb kein `try/except` in den Views.
+- **`pagination.OptionalPagePagination`** – paginiert **nur**, wenn `?page=` gesetzt ist
+  (25 pro Seite, `?page_size=` bis 100). Ohne `page` kommt die normale Liste zurück.
+- **Einstellungen (Auszug):**
+  - `AUTH_USER_MODEL = "auth_app.User"` (Login per E-Mail)
+  - JWT: Access 60 min, Refresh 7 Tage, Rotation + Blacklist
+  - `DATA_DIR` (Default `backend/data`) enthält **SQLite-DB und `media/`** – die spätere
+    Desktop-App setzt hier den vom Nutzer gewählten Ordner
+  - CORS für `localhost:5500` und `localhost:4200` (späteres Angular)
+  - Postgres optional über `DB_ENGINE=postgres`
+
+## API-Endpoints
+
+| Methode | Pfad | Zweck |
+|---|---|---|
+| – | `/admin/` | Django-Admin |
+| – | `/api/…` | App-APIs (siehe READMEs der Apps) |
+| GET | `/media/…` | Hochgeladene Bilder (nur DEBUG) |
+| GET | `/`, `/<datei>` | Frontend aus `../frontend` (nur DEBUG) |
 
 ## Verbindungen
 
-`core/urls.py` inkludiert die `api/urls.py` von `auth_app`, `products_app`, `orders_app`
-und `finance_app`. Weitere Apps (z. B. `ebay_app`) werden hier eingehängt, sobald sie
-Endpoints bereitstellen.
+- `urls.py` bindet `auth_app`, `products_app`, `orders_app` und `finance_app` ein;
+  `ebay_app` folgt, sobald sie Endpoints hat.
+- `pagination.py` wird von `products_app` und `orders_app` genutzt.
 
 ## Dateien
 
 - `settings.py` – Konfiguration
-- `urls.py` – Routing
-- `exceptions.py` – `api_exception_handler` (einheitliches `{"error": ...}`-Format)
-- `.env.example` (in `backend/`) – dokumentiert alle Umgebungsvariablen
+- `urls.py` – Routing inkl. Frontend-/Media-Auslieferung im DEBUG
+- `exceptions.py` – zentraler Exception-Handler
+- `pagination.py` – `OptionalPagePagination`
+- `backend/.env.example` – alle Umgebungsvariablen dokumentiert

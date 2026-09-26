@@ -44,7 +44,7 @@
           <span class="tax-value net" id="tax-net">–</span>
         </div>
       </div>
-      <p class="hint">Schätzung zur Orientierung – keine Buchhaltung (GoBD).</p>
+      <p class="hint">Schätzung zur Orientierung – keine Buchhaltung (GoBD). Stornierte Bestellungen zählen nicht mit.</p>
     </section>
 
     <section class="tiles" id="pl-tiles"></section>
@@ -58,7 +58,14 @@
     </section>
 
     <section class="card">
-      <h2>Monatsumsatz <span id="year-label"></span></h2>
+      <div class="card-head">
+        <h2>Monatsumsatz</h2>
+        <div class="year-switch">
+          <button type="button" class="secondary" id="year-prev">‹</button>
+          <span id="year-label"></span>
+          <button type="button" class="secondary" id="year-next">›</button>
+        </div>
+      </div>
       <div id="monthly-chart" class="bar-chart"></div>
     </section>
 
@@ -68,6 +75,7 @@
         <button id="new-goal-btn" class="secondary">+ Ziel</button>
       </div>
       <form id="goal-form" class="form-grid" style="display:none">
+        <input type="hidden" id="g-id" />
         <label>Titel<input type="text" id="g-title" required /></label>
         <label>Zielbetrag (€)<input type="number" step="0.01" id="g-target" required /></label>
         <label>Metrik

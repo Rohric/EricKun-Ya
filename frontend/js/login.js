@@ -11,7 +11,7 @@ document.getElementById("toggle-auth").addEventListener("click", (e) => {
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
-    await login(_val("login-email"), _val("login-password"));
+    await login(inputValue("login-email"), inputValue("login-password"));
     window.location.href = "dashboard.html";
   } catch (err) {
     showMessage(errorText(err));
@@ -21,7 +21,10 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 document.getElementById("register-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
-    await register(_val("reg-email"), _val("reg-name"), _val("reg-password"), _val("reg-password2"));
+    await register(
+      inputValue("reg-email"), inputValue("reg-name"),
+      inputValue("reg-password"), inputValue("reg-password2"),
+    );
     window.location.href = "dashboard.html";
   } catch (err) {
     showMessage(errorText(err));
@@ -38,8 +41,4 @@ function _toggleForms() {
   registerForm.style.display = showRegister ? "block" : "none";
   link.textContent = showRegister ? "Schon ein Konto? Anmelden" : "Noch kein Konto? Registrieren";
   showMessage("", false);
-}
-
-function _val(id) {
-  return document.getElementById(id).value.trim();
 }

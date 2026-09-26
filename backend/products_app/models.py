@@ -61,12 +61,13 @@ class Product(models.Model):
         max_length=16,
         choices=Status.choices,
         default=Status.AVAILABLE,
+        db_index=True,
     )
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
     sale_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
     aspects = models.JSONField(default=dict, blank=True)
-    purchase_date = models.DateField(null=True, blank=True)
+    purchase_date = models.DateField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

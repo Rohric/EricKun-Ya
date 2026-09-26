@@ -1,38 +1,46 @@
 # ebay_app
 
-> **Status: geplant / noch nicht implementiert.** Aktuell ein leeres Gerüst; wird in einem
-> eigenen Durchgang gebaut (eBay-OAuth + Inventory/Fulfillment API).
+Adapter **und** Zustandshalter für den Verkaufskanal eBay: bringt Artikel aus
+`products_app` auf eBay und holt Verkäufe zurück.
 
-Adapter **und** Zustands-Halter für den Verkaufskanal eBay. Kein reiner API-Client –
-speichert eigenen State (welcher Artikel ist online, verkauft, zuletzt synchronisiert),
-damit nicht bei jedem Blick live gegen die eBay-API abgefragt werden muss.
+> **Status: geplant.** Aktuell nur das App-Gerüst. Gebaut wird, sobald der eBay-Developer-
+> Account (Sandbox) aktiv ist – immer erst Sandbox, dann Production.
 
-## Geplante Aufgabe
+## Aufgaben
 
-- Artikel aus `products_app` auf eBay **inserieren** (Inventory Item → Offer → Publish)
-- eBay-seitigen Zustand halten und synchronisieren (online / verkauft / beendet)
-- eBay-OAuth-Tokens (access/refresh) sicher speichern und erneuern
-- Duplikat-Schutz beim Inserieren (Guard + OneToOne + eBays `createOrReplace`)
+- Artikel inserieren: `createOrReplaceInventoryItem` → `createOffer` → `publishOffer`
+  (einzeln und „alle")
+- eBay-Zustand je Artikel halten (Entwurf / online / verkauft / beendet)
+- OAuth-Tokens speichern und den Access-Token (2 h) per Refresh-Token (18 Monate) erneuern
+- Verkäufe über die Fulfillment API (`getOrders`) holen und mit `orders_app` verknüpfen
+  (inkl. Käuferdaten)
+- Duplikat-Schutz: pro Artikel höchstens ein Inserat
 
-## Geplantes Model
+## Models
 
-- **`EbayListing`**: OneToOne zu `Product` (`related_name="ebay_listing"`), `offer_id`,
-  `listing_id`, `category_id` (eBay-spezifisch, **nicht** im Product), `status`
-  (`TextChoices`: draft/online/sold/ended), `last_synced`.
-  - `has_unsynced_changes` als **`@property`** (lokale Änderung neuer als letzter Sync).
+Geplant:
+- **`EbayToken`** (Singleton): Refresh-/Access-Token und Ablaufzeit.
+- **`EbayListing`**: OneToOne zu `Product`, `offer_id`, `listing_id`, `category_id`,
+  `merchant_location_key`, `status`, `last_synced`; `has_unsynced_changes` berechnet.
 
-## Geplante Endpoints
+## Services / Logik
 
-- Publish-Flow (Artikel → eBay), Sync-Trigger (Zustand von eBay zurückholen).
-  Konkrete Pfade werden beim Bau festgelegt.
+Geplant: OAuth-Service (Consent-URL, Code gegen Token tauschen, Refresh),
+Inventory-Service (Mapping `Product` → eBay-Payload), Publish-Flow mit Guard, Orders-Sync.
+Einmalige Voraussetzung zum Publishen: Business Policies (Versand, Rückgabe, Zahlung) und
+eine Inventory Location. Offener Punkt: eBay braucht **öffentliche Bild-URLs** – die
+lokalen Bilder der Desktop-App müssen dafür bereitgestellt werden.
+
+## API-Endpoints
+
+Noch keine. Geplant: OAuth-Callback, Publish (einzeln / alle), Sync.
 
 ## Verbindungen
 
-- Importiert `Product` aus `products_app` (**einseitige** Code-Abhängigkeit).
-- Verkaufsdaten wandern später in `orders_app` (der `sold_at`-Platzhalter verlässt dann
-  `EbayListing`).
+- Importiert `Product` aus `products_app` (einseitige Code-Abhängigkeit).
+- Schreibt Verkäufe in `orders_app`.
 
-## Technischer Kontext
+## Dateien
 
-Siehe Übergabeprotokoll §6 und §10 (Sell Inventory API, OAuth 2.0, Business Policies +
-Location als Publish-Voraussetzung, Taxonomy API für Kategorien/Aspekte, erst Sandbox).
+- `apps.py` – App-Konfiguration
+- `models.py` – noch leer

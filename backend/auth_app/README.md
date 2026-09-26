@@ -1,40 +1,42 @@
 # auth_app
 
 App-Login und Registrierung. Stellt das **Custom User Model** des Projekts bereit
-(E-Mail statt Username als Login) und die JWT-basierte Authentifizierung.
+(E-Mail statt Username) und die JWT-Authentifizierung.
 
 > Abgrenzung: Hier lebt **nur der App-Login** (wer darf das Tool nutzen). Die
-> eBay-OAuth-Tokens (Zugang zu einem Fremddienst) gehören später in `ebay_app`, **nicht**
-> hierher.
+> eBay-OAuth-Tokens gehören in `ebay_app`, **nicht** hierher.
 
-## Aufgabe
+## Aufgaben
 
 - Custom User als projektweites `AUTH_USER_MODEL`
 - Registrierung neuer Nutzer
-- Login / Token-Refresh / Logout über JSON Web Tokens (`djangorestframework-simplejwt`)
+- Login, Token-Refresh und Logout über JSON Web Tokens
 
-## Model
+## Models
 
-- **`User`** (`AbstractUser`): `email` ist unique und `USERNAME_FIELD`, `username` entfällt,
-  `REQUIRED_FIELDS = []`. Eigener `UserManager` (`create_user`/`create_superuser` per E-Mail).
-  Der Anzeigename wird in `first_name` gespeichert.
+- **`User`** (`AbstractUser`): `email` ist unique und Login-Feld (`USERNAME_FIELD`),
+  `username` entfällt, `REQUIRED_FIELDS = []`. Anzeigename in `first_name`.
+  Eigener `UserManager` (`create_user` / `create_superuser` per E-Mail).
 
-## Endpoints
+## Services / Logik
 
-| Methode | Pfad | Auth | Zweck |
-|---|---|---|---|
-| POST | `/api/registration/` | – | Nutzer anlegen, gibt access + refresh Token zurück |
-| POST | `/api/login/` | – | Login mit `email` + `password`, gibt Token-Paar zurück |
-| POST | `/api/token/refresh/` | – | Access-Token per Refresh-Token erneuern |
-| POST | `/api/logout/` | ✔ | Refresh-Token auf die Blacklist setzen |
+Keine eigenen – Login, Refresh und Logout sind die Standard-Views von
+`djangorestframework-simplejwt`. Die Registrierung validiert im `RegistrationSerializer`
+(Passwörter gleich, E-Mail eindeutig).
 
-`login`, `token/refresh` und `logout` sind die Standard-Views von simplejwt
-(`TokenObtainPairView`, `TokenRefreshView`, `TokenBlacklistView`).
+## API-Endpoints
+
+| Methode | Pfad | Zweck |
+|---|---|---|
+| POST | `/api/registration/` | Nutzer anlegen, liefert access + refresh Token |
+| POST | `/api/login/` | Login mit `email` + `password`, liefert Token-Paar |
+| POST | `/api/token/refresh/` | Access-Token per Refresh-Token erneuern |
+| POST | `/api/logout/` | Refresh-Token auf die Blacklist setzen |
 
 ## Verbindungen
 
-- Wird über `AUTH_USER_MODEL` vom **gesamten Projekt** als Nutzermodell verwendet.
-- Alle geschützten Endpoints der anderen Apps prüfen Tokens, die hier ausgestellt werden.
+- Über `AUTH_USER_MODEL` das Nutzermodell des **gesamten Projekts**.
+- Alle geschützten Endpoints der anderen Apps prüfen die hier ausgestellten Tokens.
 
 ## Dateien
 
@@ -43,3 +45,4 @@ App-Login und Registrierung. Stellt das **Custom User Model** des Projekts berei
 - `api/serializers.py` – `RegistrationSerializer`
 - `api/views.py` – `RegistrationView`
 - `api/urls.py` – Routen inkl. der simplejwt-Views
+- `api/permissions.py` – leer (vorerst nicht nötig)

@@ -24,7 +24,7 @@ body {
 /* Navigation */
 #nav { background: var(--card); border-bottom: 1px solid var(--line); }
 .nav-inner {
-  max-width: 1040px;
+  max-width: 1200px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -37,7 +37,7 @@ body {
 .nav-links a.active, .nav-links a:hover { color: var(--ink); }
 
 /* Layout */
-.page { max-width: 1040px; margin: 24px auto; padding: 0 20px; }
+.page { max-width: 1200px; margin: 24px auto; padding: 0 20px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 h1 { font-size: 1.6rem; margin: 0; }
 h2 { font-size: 1.15rem; }
@@ -192,9 +192,14 @@ label.inline input { width: 120px; margin-top: 0; }
 .danger-btn { background: var(--danger); }
 .danger-btn:hover { background: #b83232; }
 
-@media (max-width: 720px) {
-  .form-grid, .tiles { grid-template-columns: 1fr; }
-  .nav-inner { flex-wrap: wrap; gap: 12px; }
-  .tax-breakdown { flex-direction: column; }
-  .tax-op { display: none; }
-}
+/* Pager */
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 0.85rem; }
+button:disabled, button:disabled:hover { opacity: 0.45; cursor: default; }
+
+/* Year switch */
+.year-switch { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.year-switch button { padding: 4px 10px; }
+
+/* Goal actions */
+.goal-actions { display: flex; gap: 6px; margin-top: 4px; }
+.goal.inactive { opacity: 0.55; }

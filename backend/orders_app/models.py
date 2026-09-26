@@ -18,7 +18,7 @@ class Order(models.Model):
         IN_RETURN = "in_return", "In Reklamation"
         CANCELLED = "cancelled", "Storniert"
 
-    sold_at = models.DateTimeField()
+    sold_at = models.DateTimeField(db_index=True)
     fulfillment_status = models.CharField(
         max_length=16,
         choices=Fulfillment.choices,
@@ -32,7 +32,7 @@ class Order(models.Model):
     ship_city = models.CharField(max_length=120, blank=True)
     ship_country = models.CharField(max_length=80, blank=True)
     ebay_username = models.CharField(max_length=120, blank=True)
-    reklamation_note = models.TextField(blank=True)
+    return_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

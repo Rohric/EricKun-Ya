@@ -10,7 +10,12 @@ from rest_framework.views import APIView
 from finance_app import services
 from finance_app.models import FinanceSettings, Goal
 
-from .serializers import FinanceSettingsSerializer, GoalSerializer
+from .serializers import (
+    FinanceSettingsSerializer,
+    GoalSerializer,
+    ReportRangeSerializer,
+    ReportYearSerializer,
+)
 
 
 class GoalList(generics.ListCreateAPIView):
@@ -46,7 +51,7 @@ class ProfitLossView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Compute the tax breakdown for ?from=&to= (ISO dates)."""
+        """Compute the tax breakdown for ?from=&to= (ISO dates, default: this year)."""
         start, end = _parse_range(request)
         data = services.financial_summary(start, end)
         data.update({
@@ -64,13 +69,17 @@ class MonthlyRevenueView(APIView):
 
     def get(self, request):
         """Compute monthly revenue for ?year= (defaults to the current year)."""
-        year = int(request.query_params.get("year", date.today().year))
+        params = ReportYearSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        year = params.validated_data.get("year", date.today().year)
         return Response({"year": year, "monthly_revenue": services.monthly_revenue(year)})
 
 
 def _parse_range(request):
-    """Return (from, to) dates from query params, defaulting to this year."""
+    """Return the validated (from, to) dates, defaulting to the current year so far."""
+    params = ReportRangeSerializer(data=request.query_params)
+    params.is_valid(raise_exception=True)
     today = date.today()
-    start = request.query_params.get("from") or date(today.year, 1, 1).isoformat()
-    end = request.query_params.get("to") or today.isoformat()
-    return date.fromisoformat(start), date.fromisoformat(end)
+    start = params.validated_data.get("from", date(today.year, 1, 1))
+    end = params.validated_data.get("to", today)
+    return start, end

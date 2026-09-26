@@ -13,9 +13,10 @@ const STATUS_LABELS = {
 
 let categories = [];
 let currentView = "active";
+let currentPage = 1;
 let currentProductId = null;
 
-document.getElementById("new-product-btn").addEventListener("click", () => _newProduct());
+document.getElementById("new-product-btn").addEventListener("click", _newProduct);
 document.getElementById("cancel-product").addEventListener("click", _closeForm);
 document.getElementById("product-form").addEventListener("submit", _saveProduct);
 document.getElementById("image-input").addEventListener("change", _uploadImages);
@@ -23,7 +24,7 @@ document.getElementById("manage-cats-btn").addEventListener("click", _toggleCatM
 document.getElementById("add-parent").addEventListener("click", _addParentCategory);
 document.getElementById("add-sub").addEventListener("click", _addSubCategory);
 document.getElementById("p-parent-cat").addEventListener("change", () =>
-  _fillSubDropdown("p-sub-cat", _val("p-parent-cat"))
+  _fillSubDropdown("p-sub-cat", inputValue("p-parent-cat"))
 );
 document.querySelectorAll("#view-switch button").forEach((btn) =>
   btn.addEventListener("click", () => _selectView(btn.dataset.view))
@@ -40,15 +41,30 @@ async function init() {
   }
 }
 
-// --- View switch (active vs. archive) ---
+// --- View switch (active vs. archive) + paging ---
 
 function _selectView(view) {
   currentView = view;
-  document.querySelectorAll("#view-switch button").forEach((btn) =>
-    btn.classList.toggle("active", btn.dataset.view === view)
-  );
+  currentPage = 1;
+  markActive("view-switch", "view", view);
   _closeForm();
   loadProducts().catch((err) => showMessage(errorText(err)));
+}
+
+function _goToPage(page) {
+  currentPage = page;
+  loadProducts().catch((err) => showMessage(errorText(err)));
+}
+
+// Reload the list; step back a page if the current one became empty.
+async function _reloadAfterRemoval() {
+  try {
+    await loadProducts();
+  } catch (err) {
+    if (err.status !== 404 || currentPage === 1) throw err;
+    currentPage -= 1;
+    await loadProducts();
+  }
 }
 
 // --- Categories ---
@@ -102,7 +118,7 @@ function _subChips(parentId) {
 }
 
 async function _addParentCategory() {
-  const name = _val("new-parent-name");
+  const name = inputValue("new-parent-name");
   if (!name) return;
   try {
     await apiSend("/categories/", "POST", { name, parent: null });
@@ -114,8 +130,8 @@ async function _addParentCategory() {
 }
 
 async function _addSubCategory() {
-  const name = _val("new-sub-name");
-  const parent = _val("sub-parent-select");
+  const name = inputValue("new-sub-name");
+  const parent = inputValue("sub-parent-select");
   if (!name || !parent) return showMessage("Oberkategorie + Name nötig.");
   try {
     await apiSend("/categories/", "POST", { name, parent: Number(parent) });
@@ -131,16 +147,18 @@ async function _deleteCategory(id) {
   try {
     await apiDelete(`/categories/${id}/`);
     await loadCategories();
-    loadProducts();
+    await loadProducts();
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
-// --- Products ---
+// --- Product list ---
 
 async function loadProducts() {
-  _renderRows(await apiGet(`/products/?view=${currentView}`));
+  const data = await apiGet(`/products/?view=${currentView}&page=${currentPage}`);
+  _renderRows(data.results);
+  renderPager("product-pager", data, currentPage, _goToPage);
 }
 
 function _renderRows(products) {
@@ -164,12 +182,11 @@ function _renderRows(products) {
 }
 
 function _rowActions(product) {
+  const del = `<button data-del="${product.id}" class="link-btn danger">Löschen</button>`;
   if (currentView === "archive") {
-    return `<button data-react="${product.id}" class="link-btn">Reaktivieren</button>
-            <button data-del="${product.id}" class="link-btn danger">Löschen</button>`;
+    return `<button data-react="${product.id}" class="link-btn">Reaktivieren</button>${del}`;
   }
-  return `<button data-edit="${product.id}" class="link-btn">Bearbeiten</button>
-          <button data-del="${product.id}" class="link-btn danger">Löschen</button>`;
+  return `<button data-edit="${product.id}" class="link-btn">Bearbeiten</button>${del}`;
 }
 
 function _thumb(product) {
@@ -178,31 +195,38 @@ function _thumb(product) {
 }
 
 function _bindRowActions(products) {
-  document.querySelectorAll("[data-edit]").forEach((btn) =>
-    btn.addEventListener("click", () => _openForm(products.find((p) => p.id === Number(btn.dataset.edit))))
+  const bind = (attr, handler) => document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
+    btn.addEventListener("click", () => handler(Number(btn.getAttribute(`data-${attr}`))))
   );
-  document.querySelectorAll("[data-react]").forEach((btn) =>
-    btn.addEventListener("click", () => _reactivate(Number(btn.dataset.react)))
-  );
-  document.querySelectorAll("[data-del]").forEach((btn) =>
-    btn.addEventListener("click", () => _deleteProduct(Number(btn.dataset.del)))
-  );
+  bind("edit", (id) => _openForm(products.find((p) => p.id === id)));
+  bind("react", _reactivate);
+  bind("del", _deleteProduct);
 }
 
 async function _reactivate(id) {
   try {
     await apiSend(`/products/${id}/`, "PATCH", { status: "available" });
-    loadProducts();
+    await _reloadAfterRemoval();
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
+async function _deleteProduct(id) {
+  if (!confirm("Diesen Artikel wirklich löschen?")) return;
+  try {
+    await apiDelete(`/products/${id}/`);
+    if (currentProductId === id) _closeForm();
+    await _reloadAfterRemoval();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+}
+
+// --- Product form ---
+
 function _newProduct() {
   if (currentView !== "active") _selectView("active");
-  document.querySelectorAll("#view-switch button").forEach((btn) =>
-    btn.classList.toggle("active", btn.dataset.view === "active")
-  );
   _openForm();
 }
 
@@ -247,7 +271,7 @@ function _fillCategorySelectors(categoryId) {
 
 async function _saveProduct(e) {
   e.preventDefault();
-  const id = document.getElementById("product-id").value;
+  const id = inputValue("product-id");
   try {
     const saved = id
       ? await apiSend(`/products/${id}/`, "PATCH", _formPayload())
@@ -256,7 +280,7 @@ async function _saveProduct(e) {
     currentProductId = saved.id;
     document.getElementById("product-id").value = saved.id;
     _syncImageSection(saved);
-    loadProducts();
+    await _reloadAfterRemoval();
   } catch (err) {
     showMessage(errorText(err));
   }
@@ -264,24 +288,26 @@ async function _saveProduct(e) {
 
 function _formPayload() {
   return {
-    title: _val("p-title"),
-    condition: _val("p-condition"),
-    status: _val("p-status"),
+    title: inputValue("p-title"),
+    condition: inputValue("p-condition"),
+    status: inputValue("p-status"),
     category: _selectedCategory(),
-    purchase_price: _val("p-purchase"),
-    sale_price: _val("p-sale"),
-    quantity: Number(document.getElementById("p-quantity").value || 0),
-    purchase_date: document.getElementById("p-date").value || null,
-    description: _val("p-description"),
+    purchase_price: inputValue("p-purchase"),
+    sale_price: inputValue("p-sale"),
+    quantity: Number(inputValue("p-quantity") || 0),
+    purchase_date: inputValue("p-date") || null,
+    description: inputValue("p-description"),
   };
 }
 
 // Return the chosen category id: sub if picked, else parent, else null.
 function _selectedCategory() {
-  const sub = _val("p-sub-cat");
-  const parent = _val("p-parent-cat");
+  const sub = inputValue("p-sub-cat");
+  const parent = inputValue("p-parent-cat");
   return sub ? Number(sub) : (parent ? Number(parent) : null);
 }
+
+// --- Images ---
 
 function _syncImageSection(product) {
   const hasId = Boolean(product);
@@ -328,20 +354,5 @@ async function _deleteImage(imageId) {
 
 async function _refreshImages() {
   _renderGallery(await apiGet(`/products/${currentProductId}/images/`));
-  loadProducts();
-}
-
-async function _deleteProduct(id) {
-  if (!confirm("Diesen Artikel wirklich löschen?")) return;
-  try {
-    await apiDelete(`/products/${id}/`);
-    if (currentProductId === id) _closeForm();
-    loadProducts();
-  } catch (err) {
-    showMessage(errorText(err));
-  }
-}
-
-function _val(id) {
-  return document.getElementById(id).value.trim();
+  await loadProducts();
 }

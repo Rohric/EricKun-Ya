@@ -1,45 +1,63 @@
 # products_app
 
-Der **plattform-neutrale Kern** und die Source of Truth für alle Artikel. Enthält
-ausschließlich Artikel-Inhaltsdaten – **kein** eBay- oder sonstiges Plattform-Wissen.
+Der **plattform-neutrale Kern** und die Source of Truth für alle Artikel – inklusive
+Kategorien, Verkaufsstatus, Archiv und Bildern. Enthält **kein** eBay-Wissen.
 
-> Leitprinzip: Das Tool besitzt die Artikel. eBay (und später Amazon) sind nur
-> Ausgabekanäle. `products_app` kennt **keine** Plattform-App (kein Import in diese
-> Richtung); die Plattform-Apps hängen sich an `Product` an.
+> Leitprinzip: Das Tool besitzt die Artikel, eBay (später Amazon) sind nur Ausgabekanäle.
+> `products_app` importiert **keine** Plattform-App; die Plattform-Apps hängen sich an `Product`.
 
-## Aufgabe
+## Aufgaben
 
-- Verwaltung der Artikelstammdaten (Titel, Zustand, Ein-/Verkaufspreis, Menge, Aspekte)
-- Automatische, eindeutige SKU-Vergabe
-- Gewinn pro Stück als Berechnung (kein gespeichertes Feld)
+- Artikelstammdaten pflegen (Titel, Zustand, Preise, Menge, Aspekte, Einkaufsdatum)
+- Eindeutige SKU automatisch vergeben
+- Interne Kategorien als Baum (Ober-/Unterkategorie)
+- Verkaufsstatus und **Archiv** (verkaufte/archivierte Artikel getrennt von den aktiven)
+- Mehrere Bilder pro Artikel in einem Ordner je SKU, mit automatischem Aufräumen
 
-## Model
+## Models
 
-- **`Product`**: `sku` (auto-generiert, `ART-XXXXXXXX`, nicht editierbar), `title`,
-  `description`, `condition` (`TextChoices`, englische Werte / deutsche Labels),
-  `purchase_price`, `sale_price`, `quantity`, `aspects` (`JSONField`, weil eBay-Aspekte
-  kategorieabhängig sind), `purchase_date`, `created_at`, `updated_at`.
-  - `profit` ist eine **`@property`** (`sale_price − purchase_price`), kein Feld.
+- **`Category`**: `name`, `parent` (Self-FK → `children`); eindeutig je Oberkategorie.
+  `str()` liefert den Pfad „Oberkategorie › Unterkategorie".
+- **`Product`**: `sku` (auto, `ART-XXXXXXXX`, nicht editierbar), `title`, `description`,
+  `category`, `condition` (Neu … Defekt), `status` (verfügbar / reserviert / verkauft /
+  archiviert, **indexiert**), `purchase_price`, `sale_price`, `quantity`, `aspects` (JSON),
+  `purchase_date` (**indexiert**), Zeitstempel.
+  Berechnet statt gespeichert: `profit`, `category_path`.
+- **`ProductImage`**: `product`, `image` (abgelegt unter `media/products/<sku>/`),
+  `position` (0 = Hauptbild), `uploaded_at`.
 
-## Endpoints
+## Services / Logik
+
+- `utils.generate_sku()` – kollisionsfreie SKU
+- `signals.py` – löscht Bilddateien beim Löschen/Ersetzen und den ganzen SKU-Ordner beim
+  Löschen des Artikels
+- Archiv = Status `sold` oder `archived`; die Liste filtert per `?view=`
+- Bestand und „verkauft" bucht `orders_app` automatisch (siehe dort)
+- Listen laden Kategorie, Oberkategorie und Bilder vorab (`select_related` /
+  `prefetch_related`) → konstante Query-Anzahl, egal wie viele Artikel
+
+## API-Endpoints
 
 | Methode | Pfad | Zweck |
 |---|---|---|
-| GET / POST | `/api/products/` | Alle Artikel auflisten / neuen anlegen |
-| GET / PUT / PATCH / DELETE | `/api/products/<id>/` | Einzelnen Artikel lesen/ändern/löschen |
-
-Alle Endpoints erfordern Authentifizierung (`IsAuthenticated`).
+| GET / POST | `/api/categories/` | Kategorien auflisten / anlegen |
+| GET / PUT / PATCH / DELETE | `/api/categories/<id>/` | Einzelne Kategorie |
+| GET / POST | `/api/products/` | Artikel; `?view=active` (Default) \| `archive` \| `all`, optional `?page=N` |
+| GET / PUT / PATCH / DELETE | `/api/products/<id>/` | Einzelner Artikel |
+| GET / POST | `/api/products/<id>/images/` | Bilder auflisten / hochladen (multipart, Feld `image`) |
+| DELETE | `/api/product-images/<id>/` | Einzelnes Bild löschen |
 
 ## Verbindungen
 
-- **`orders_app`**: `OrderItem` referenziert `Product` per ForeignKey (`related_name="order_items"`).
-- **`finance_app`**: liest `purchase_price` / `purchase_date` für Einkaufs- und GuV-Auswertungen.
-- **`ebay_app`** (geplant): `EbayListing` wird `Product` per OneToOne referenzieren
-  (`product.ebay_listing`) – Datenverknüpfung ja, Code-Abhängigkeit nur einseitig.
+- **`orders_app`**: `OrderItem.product` (FK, `SET_NULL`); bucht Bestand und Status.
+- **`finance_app`**: liest `purchase_price` / `purchase_date` für Einkauf und Gewinn.
+- **`ebay_app`** (geplant): `EbayListing` als OneToOne zu `Product`.
 
 ## Dateien
 
-- `models.py` – `Product`
+- `models.py` – `Category`, `Product`, `ProductImage`
 - `utils.py` – `generate_sku()`
-- `api/serializers.py`, `api/views.py`, `api/urls.py` – CRUD-API
-- `admin.py` – `ProductAdmin` (z. B. zum Einpflegen der Altartikel von Hand)
+- `signals.py` – Aufräumen der Bilddateien
+- `apps.py` – registriert die Signals in `ready()`
+- `api/serializers.py`, `api/views.py`, `api/urls.py` – API
+- `admin.py` – Kategorien, Artikel mit Bild-Inline

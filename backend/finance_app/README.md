@@ -1,53 +1,59 @@
 # finance_app
 
-Kalkulationshilfe: Ziele, Gewinn/Verlust-Auswertungen, Monatsumsatz und eine
-Steuer-Rücklagen-Schätzung.
+Kalkulationshilfe: Ziele, Steuerrechnung, Monatsumsatz und Einkaufsausgaben – für
+frei wählbare Zeiträume.
 
-> **GoBD-Leitplanke:** Diese App ist **Orientierung/Kalkulation**, keine rechtssichere
-> Buchhaltung. Zahlen fürs Finanzamt gehören in echte Buchhaltungssoftware bzw. zum
-> Steuerberater – hierhin wird höchstens exportiert.
+> **GoBD-Leitplanke:** Orientierung, keine rechtssichere Buchhaltung. Zahlen fürs
+> Finanzamt gehören in echte Buchhaltungssoftware bzw. zum Steuerberater.
 
-## Aufgabe
+## Aufgaben
 
-- Sparziele definieren und deren Fortschritt anzeigen
-- Gewinn/Verlust über einen Zeitraum berechnen
-- Monatsumsatz und Einkaufsverlauf auswerten
-- Steuer-Rücklage schätzen (Prozentsatz jederzeit änderbar)
+- Ziele (Umsatz oder Gewinn) anlegen, bearbeiten, (de)aktivieren, Fortschritt berechnen
+- **Steuerrechnung:** Brutto-Gewinn = Steuerrücklage + Netto-Gewinn
+- Umsatz, Einkauf und Gewinn für beliebige Zeiträume
+- Monatsumsatz eines wählbaren Jahres
+- Rücklagensatz jederzeit änderbar
 
 ## Models
 
-- **`Goal`**: `title`, `target_amount`, `metric` (`TextChoices`: Umsatz/Gewinn – **pro Ziel
-  wählbar**), `period` (monatlich/jährlich/gesamt), `start_date`, `end_date` (optional),
-  `is_active`. **Fortschritt ist kein Feld** – er wird aus den Orders berechnet.
-- **`FinanceSettings`**: Singleton (`pk=1`) mit `tax_reserve_rate` (Prozent), jederzeit
-  über die API/Admin änderbar. `load()` liefert die Zeile (Default aus `TAX_RESERVE_RATE`).
+- **`Goal`**: `title`, `target_amount`, `metric` (Umsatz / Gewinn), `period`
+  (monatlich / jährlich / gesamt), `start_date`, `end_date` (optional), `is_active`.
+  Der Fortschritt ist **kein Feld**, er wird berechnet.
+- **`FinanceSettings`**: Singleton (`pk=1`) mit `tax_reserve_rate` in Prozent;
+  `load()` legt die Zeile beim ersten Zugriff an (Default aus `TAX_RESERVE_RATE`).
 
-## Services (`services.py`)
+## Services / Logik
 
-Reine Berechnungen (keine gespeicherten Ergebnisse):
-`revenue_for_period`, `profit_for_period`, `purchase_expenses_for_period`,
-`monthly_revenue(year)`, `tax_reserve(profit)`, `goal_progress(goal)`.
+Reine Berechnungen in `services.py`, nichts wird gespeichert:
+- `_items_in_period` – Positionen im Zeitraum, **ohne stornierte Bestellungen**; filtert
+  über einen Datetime-Bereich, damit der Index auf `sold_at` greift
+- `revenue_for_period`, `profit_for_period`, `purchase_expenses_for_period`
+- `tax_reserve`, `financial_summary` (Umsatz, Einkauf, Brutto, Rücklage, Netto)
+- `monthly_revenue` – alle 12 Monate in **einer** gruppierten Query
+- `goal_progress`
 
-## Endpoints
+Query-Parameter werden über `ReportRangeSerializer` / `ReportYearSerializer` validiert –
+ungültige Werte liefern 400 mit deutscher Meldung.
+
+## API-Endpoints
 
 | Methode | Pfad | Zweck |
 |---|---|---|
-| GET / POST | `/api/goals/` | Ziele auflisten / anlegen (Antwort enthält `progress`) |
+| GET / POST | `/api/goals/` | Ziele auflisten (inkl. `progress`) / anlegen |
 | GET / PUT / PATCH / DELETE | `/api/goals/<id>/` | Einzelnes Ziel |
-| GET / PUT / PATCH | `/api/finance/settings/` | Rücklagensatz lesen/ändern (Singleton) |
-| GET | `/api/finance/reports/profit-loss/?from=&to=` | Umsatz, Gewinn, Ausgaben, Rücklage |
-| GET | `/api/finance/reports/monthly-revenue/?year=` | 12 Monatsumsätze eines Jahres |
-
-Alle Endpoints erfordern Authentifizierung.
+| GET / PUT / PATCH | `/api/finance/settings/` | Rücklagensatz lesen / ändern |
+| GET | `/api/finance/reports/profit-loss/?from=&to=` | `revenue`, `expenses`, `gross_profit`, `tax_reserve`, `net_profit`, `tax_rate` (Default: laufendes Jahr) |
+| GET | `/api/finance/reports/monthly-revenue/?year=` | 12 Monatsumsätze |
 
 ## Verbindungen
 
-- **`orders_app`**: liest `OrderItem` (nach `Order.sold_at`) für Umsatz/Gewinn/Ziel-Fortschritt.
-- **`products_app`**: liest `purchase_price` / `purchase_date` für den Einkaufsverlauf.
+- **`orders_app`**: liest `OrderItem` (nach `Order.sold_at`, ohne stornierte).
+- **`products_app`**: liest `purchase_price` / `purchase_date` für den Einkauf.
 
 ## Dateien
 
 - `models.py` – `Goal`, `FinanceSettings`
-- `services.py` – Auswertungs-Logik
-- `api/serializers.py`, `api/views.py`, `api/urls.py` – API
+- `services.py` – Auswertungslogik
+- `api/serializers.py` – Goal-/Settings-Serializer + Parameter-Validierung
+- `api/views.py`, `api/urls.py` – API
 - `admin.py` – `GoalAdmin`, `FinanceSettingsAdmin`

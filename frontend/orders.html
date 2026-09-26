@@ -35,8 +35,8 @@
         <label>Ort<input type="text" id="o-city" /></label>
         <label>Land<input type="text" id="o-country" /></label>
         <label>Tracking-Nummer<input type="text" id="o-tracking" /></label>
-        <label class="full" id="reklamation-wrap" style="display:none">Reklamations-Notiz
-          <textarea id="o-reklamation" rows="2"></textarea>
+        <label class="full" id="return-note-wrap" style="display:none">Reklamations-Notiz
+          <textarea id="o-return-note" rows="2"></textarea>
         </label>
       </div>
 
@@ -45,6 +45,9 @@
         <div id="item-rows"></div>
         <button type="button" id="add-item" class="secondary">+ Position</button>
       </div>
+      <p id="items-locked-hint" class="hint" style="display:none">
+        Positionen sind nach dem Anlegen fest – bei Änderungen die Bestellung stornieren und neu anlegen.
+      </p>
 
       <div class="form-actions">
         <button type="submit">Speichern</button>
@@ -61,6 +64,7 @@
       </thead>
       <tbody id="order-rows"></tbody>
     </table>
+    <div id="order-pager" class="pager"></div>
   </main>
 
   <div id="cancel-modal" class="modal" style="display:none">

@@ -4,16 +4,18 @@ requireAuth();
 renderNav("finances.html");
 
 const MONTHS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
-const YEAR = new Date().getFullYear();
 
 let range = periodRange("year");
+let chartYear = new Date().getFullYear();
+let goals = [];
 
-document.getElementById("year-label").textContent = YEAR;
 document.getElementById("save-reserve").addEventListener("click", _saveReserve);
-document.getElementById("new-goal-btn").addEventListener("click", _toggleGoalForm);
-document.getElementById("cancel-goal").addEventListener("click", _toggleGoalForm);
+document.getElementById("new-goal-btn").addEventListener("click", () => _openGoalForm());
+document.getElementById("cancel-goal").addEventListener("click", _closeGoalForm);
 document.getElementById("goal-form").addEventListener("submit", _saveGoal);
 document.getElementById("apply-range").addEventListener("click", _applyCustomRange);
+document.getElementById("year-prev").addEventListener("click", () => _shiftYear(-1));
+document.getElementById("year-next").addEventListener("click", () => _shiftYear(1));
 document.querySelectorAll("#period-switch button").forEach((btn) =>
   btn.addEventListener("click", () => _selectPeriod(btn.dataset.period))
 );
@@ -28,20 +30,20 @@ async function init() {
   }
 }
 
+// --- Period filter + tax breakdown ---
+
 function _selectPeriod(preset) {
   range = periodRange(preset);
-  document.querySelectorAll("#period-switch button").forEach((btn) =>
-    btn.classList.toggle("active", btn.dataset.period === preset)
-  );
+  markActive("period-switch", "period", preset);
   _loadSummary().catch((err) => showMessage(errorText(err)));
 }
 
 function _applyCustomRange() {
-  const from = document.getElementById("range-from").value;
-  const to = document.getElementById("range-to").value;
+  const from = inputValue("range-from");
+  const to = inputValue("range-to");
   if (!from || !to) return showMessage("Bitte von und bis wählen.");
   range = { from, to };
-  document.querySelectorAll("#period-switch button").forEach((btn) => btn.classList.remove("active"));
+  markActive("period-switch", "period", "");
   _loadSummary().catch((err) => showMessage(errorText(err)));
 }
 
@@ -49,11 +51,7 @@ function _applyCustomRange() {
 async function _loadSummary() {
   const data = await apiGet(`/finance/reports/profit-loss/?from=${range.from}&to=${range.to}`);
   _renderTax(data);
-  const tiles = [["Umsatz", data.revenue], ["Einkauf", data.expenses]];
-  document.getElementById("pl-tiles").innerHTML = tiles.map(([label, value]) =>
-    `<div class="tile"><span class="tile-label">${label}</span>
-     <span class="tile-value">${formatEuro(value)}</span></div>`
-  ).join("");
+  renderTiles("pl-tiles", [["Umsatz", data.revenue], ["Einkauf", data.expenses]]);
 }
 
 function _renderTax(data) {
@@ -64,8 +62,16 @@ function _renderTax(data) {
   document.getElementById("tax-net").textContent = formatEuro(data.net_profit);
 }
 
+// --- Monthly chart with year switch ---
+
+function _shiftYear(delta) {
+  chartYear += delta;
+  _loadMonthly().catch((err) => showMessage(errorText(err)));
+}
+
 async function _loadMonthly() {
-  const data = await apiGet(`/finance/reports/monthly-revenue/?year=${YEAR}`);
+  document.getElementById("year-label").textContent = chartYear;
+  const data = await apiGet(`/finance/reports/monthly-revenue/?year=${chartYear}`);
   const values = data.monthly_revenue.map(Number);
   const max = Math.max(...values, 1);
   document.getElementById("monthly-chart").innerHTML = values.map((v, i) => `
@@ -75,6 +81,8 @@ async function _loadMonthly() {
     </div>`).join("");
 }
 
+// --- Reserve rate ---
+
 async function _loadSettings() {
   const data = await apiGet("/finance/settings/");
   document.getElementById("reserve-rate").value = data.tax_reserve_rate;
@@ -82,7 +90,7 @@ async function _loadSettings() {
 
 async function _saveReserve() {
   try {
-    await apiSend("/finance/settings/", "PATCH", { tax_reserve_rate: document.getElementById("reserve-rate").value });
+    await apiSend("/finance/settings/", "PATCH", { tax_reserve_rate: inputValue("reserve-rate") });
     showMessage("Rücklagensatz gespeichert.", false);
     _loadSummary();
   } catch (err) {
@@ -90,48 +98,82 @@ async function _saveReserve() {
   }
 }
 
+// --- Goals (all goals, editable) ---
+
 async function _loadGoals() {
-  const goals = await apiGet("/goals/");
-  const active = goals.filter((g) => g.is_active);
-  document.getElementById("goals").innerHTML = active.length
-    ? active.map(_goalCard).join("")
-    : `<p class="empty">Noch keine aktiven Ziele.</p>`;
+  goals = await apiGet("/goals/");
+  document.getElementById("goals").innerHTML = goals.length
+    ? goals.map((goal) => renderGoalCard(goal, true)).join("")
+    : `<p class="empty">Noch keine Ziele.</p>`;
+  _bindGoalActions();
 }
 
-function _goalCard(goal) {
-  const percent = Math.min(Number(goal.progress.percent), 100);
-  const metric = goal.metric === "profit" ? "Gewinn" : "Umsatz";
-  return `
-    <div class="goal">
-      <div class="goal-head">
-        <strong>${escapeHtml(goal.title)}</strong>
-        <span>${formatEuro(goal.progress.current)} / ${formatEuro(goal.target_amount)} (${metric})</span>
-      </div>
-      <div class="progress"><div class="progress-bar" style="width:${percent}%"></div></div>
-      <span class="goal-percent">${goal.progress.percent}%</span>
-    </div>`;
+function _bindGoalActions() {
+  const bind = (attr, handler) => document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
+    btn.addEventListener("click", () => handler(Number(btn.getAttribute(`data-${attr}`))))
+  );
+  bind("goal-edit", (id) => _openGoalForm(goals.find((goal) => goal.id === id)));
+  bind("goal-toggle", _toggleGoal);
+  bind("goal-del", _deleteGoal);
 }
 
-function _toggleGoalForm() {
-  const form = document.getElementById("goal-form");
-  form.style.display = form.style.display === "none" ? "grid" : "none";
+function _openGoalForm(goal) {
+  const set = (id, value) => { document.getElementById(id).value = value ?? ""; };
+  set("g-id", goal ? goal.id : "");
+  set("g-title", goal ? goal.title : "");
+  set("g-target", goal ? goal.target_amount : "");
+  set("g-start", goal ? goal.start_date : "");
+  set("g-end", goal ? goal.end_date : "");
+  document.getElementById("g-metric").value = goal ? goal.metric : "revenue";
+  document.getElementById("g-period").value = goal ? goal.period : "yearly";
+  document.getElementById("goal-form").style.display = "grid";
   showMessage("", false);
+}
+
+function _closeGoalForm() {
+  document.getElementById("goal-form").reset();
+  document.getElementById("g-id").value = "";
+  document.getElementById("goal-form").style.display = "none";
 }
 
 async function _saveGoal(e) {
   e.preventDefault();
-  const payload = {
-    title: document.getElementById("g-title").value.trim(),
-    target_amount: document.getElementById("g-target").value,
-    metric: document.getElementById("g-metric").value,
-    period: document.getElementById("g-period").value,
-    start_date: document.getElementById("g-start").value,
-    end_date: document.getElementById("g-end").value || null,
-  };
+  const id = inputValue("g-id");
   try {
-    await apiSend("/goals/", "POST", payload);
-    document.getElementById("goal-form").reset();
-    _toggleGoalForm();
+    if (id) await apiSend(`/goals/${id}/`, "PATCH", _goalPayload());
+    else await apiSend("/goals/", "POST", _goalPayload());
+    _closeGoalForm();
+    _loadGoals();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+}
+
+function _goalPayload() {
+  return {
+    title: inputValue("g-title"),
+    target_amount: inputValue("g-target"),
+    metric: inputValue("g-metric"),
+    period: inputValue("g-period"),
+    start_date: inputValue("g-start"),
+    end_date: inputValue("g-end") || null,
+  };
+}
+
+async function _toggleGoal(id) {
+  const goal = goals.find((item) => item.id === id);
+  try {
+    await apiSend(`/goals/${id}/`, "PATCH", { is_active: !goal.is_active });
+    _loadGoals();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+}
+
+async function _deleteGoal(id) {
+  if (!confirm("Dieses Ziel wirklich löschen?")) return;
+  try {
+    await apiDelete(`/goals/${id}/`);
     _loadGoals();
   } catch (err) {
     showMessage(errorText(err));

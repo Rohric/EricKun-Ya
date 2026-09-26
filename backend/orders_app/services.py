@@ -1,5 +1,7 @@
 """Business logic for orders: stock synchronisation and cancellation."""
 
+from django.db import transaction
+
 from products_app.models import Product
 
 
@@ -21,6 +23,7 @@ def sync_stock(order, sign):
         apply_stock_change(item.product, sign * item.quantity)
 
 
+@transaction.atomic
 def cancel_order(order, item_action):
     """Cancel an order, restock its items and apply the chosen product action."""
     sync_stock(order, sign=1)

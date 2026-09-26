@@ -1,5 +1,8 @@
 """Serializers for orders and their line items."""
 
+from collections import Counter
+
+from django.db import transaction
 from rest_framework import serializers
 
 from orders_app.models import Order, OrderItem
@@ -16,6 +19,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ["id", "product", "product_title", "sold_price", "quantity", "subtotal", "profit"]
+        extra_kwargs = {
+            "product": {"required": True, "allow_null": False},
+            "quantity": {"min_value": 1},
+        }
 
     def get_product_title(self, obj):
         """Return the product title, or a placeholder if the product was deleted."""
@@ -34,11 +41,18 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "sold_at", "fulfillment_status", "tracking_number",
             "buyer_name", "ship_street", "ship_zip", "ship_city", "ship_country",
-            "ebay_username", "reklamation_note",
+            "ebay_username", "return_note",
             "items", "total_revenue", "total_profit", "created_at",
         ]
         read_only_fields = ["created_at"]
 
+    def validate(self, data):
+        """Reject items that exceed the available stock of their product."""
+        if "items" in data:
+            _check_stock(data["items"], self.instance)
+        return data
+
+    @transaction.atomic
     def create(self, validated_data):
         """Create the order with its items and deduct the sold quantities from stock."""
         items = validated_data.pop("items")
@@ -47,6 +61,7 @@ class OrderSerializer(serializers.ModelSerializer):
         sync_stock(order, sign=-1)
         return order
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         """Update the order; if items change, restock the old set and deduct the new."""
         items = validated_data.pop("items", None)
@@ -65,3 +80,27 @@ def _create_items(order, items):
     OrderItem.objects.bulk_create(
         [OrderItem(order=order, **item) for item in items]
     )
+
+
+def _check_stock(items, order=None):
+    """Raise a validation error if any product lacks enough stock for the items."""
+    wanted = Counter()
+    for item in items:
+        wanted[item["product"]] += item["quantity"]
+    booked = _booked_quantities(order)
+    for product, amount in wanted.items():
+        available = product.quantity + booked.get(product.pk, 0)
+        if amount > available:
+            raise serializers.ValidationError(
+                f"Nur {available} Stück von „{product.title}“ verfügbar."
+            )
+
+
+def _booked_quantities(order):
+    """Return {product_id: quantity} already booked by an existing order."""
+    booked = Counter()
+    if order is None:
+        return booked
+    for item in order.items.all():
+        booked[item.product_id] += item.quantity
+    return booked
