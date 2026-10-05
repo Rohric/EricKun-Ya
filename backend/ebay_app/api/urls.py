@@ -3,10 +3,17 @@
 from django.urls import path
 
 from .views import (
+    CategoryRequirementsView,
+    CategorySuggestionsView,
     ConnectFinishView,
     ConnectStartView,
     DisconnectView,
     EbayStatusView,
+    ListingList,
+    ListingPublishView,
+    ListingSyncAllView,
+    ListingSyncView,
+    ListingWithdrawView,
     LocationSyncView,
     PoliciesView,
     ShippingServicesView,
@@ -20,4 +27,15 @@ urlpatterns = [
     path("ebay/shipping-services/", ShippingServicesView.as_view(), name="ebay-shipping-services"),
     path("ebay/policies/", PoliciesView.as_view(), name="ebay-policies"),
     path("ebay/location/sync/", LocationSyncView.as_view(), name="ebay-location-sync"),
+    path("ebay/categories/suggest/", CategorySuggestionsView.as_view(), name="ebay-category-suggest"),
+    path(
+        "ebay/categories/<str:category_id>/requirements/",
+        CategoryRequirementsView.as_view(),
+        name="ebay-category-requirements",
+    ),
+    path("ebay/listings/", ListingList.as_view(), name="ebay-listing-list"),
+    path("ebay/listings/sync-all/", ListingSyncAllView.as_view(), name="ebay-listing-sync-all"),
+    path("ebay/listings/<int:pk>/publish/", ListingPublishView.as_view(), name="ebay-listing-publish"),
+    path("ebay/listings/<int:pk>/sync/", ListingSyncView.as_view(), name="ebay-listing-sync"),
+    path("ebay/listings/<int:pk>/withdraw/", ListingWithdrawView.as_view(), name="ebay-listing-withdraw"),
 ]

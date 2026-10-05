@@ -37,7 +37,15 @@ def shipping_services():
     """Return the marketplace's domestic, still valid shipping services as code/name pairs."""
     path = f"/sell/metadata/v1/shipping/marketplace/{settings.EBAY_MARKETPLACE_ID}/get_shipping_services"
     data = call("GET", path, headers={"Accept-Language": "de-DE"})
-    return [_service_option(s) for s in data.get("shippingServices", []) if _is_domestic(s)]
+    return _unique_by_code(_service_option(s) for s in data.get("shippingServices", []) if _is_domestic(s))
+
+
+def _unique_by_code(options):
+    """Drop repeated codes: eBay lists one entry per package size, the first has the general name."""
+    unique = {}
+    for option in options:
+        unique.setdefault(option["code"], option)
+    return list(unique.values())
 
 
 def _is_domestic(service):

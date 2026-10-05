@@ -6,3 +6,7 @@ class EbayAppConfig(AppConfig):
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "ebay_app"
+
+    def ready(self):
+        """Register signal handlers."""
+        from ebay_app import signals  # noqa: F401

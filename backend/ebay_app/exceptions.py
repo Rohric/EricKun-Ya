@@ -11,6 +11,11 @@ class EbayApiError(APIException):
     default_detail = "eBay hat die Anfrage abgelehnt."
     default_code = "ebay_error"
 
+    def __init__(self, detail=None, code=None, http_status=None):
+        """Keep eBay's own HTTP status so services can react to e.g. a 404."""
+        super().__init__(detail, code)
+        self.http_status = http_status
+
 
 class EbayNotConnected(APIException):
     """No valid eBay connection exists (never connected or refresh token expired)."""

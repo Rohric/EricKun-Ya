@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from ebay_app.models import EbayAccount, EbayLocation
+from ebay_app.models import EbayAccount, EbayImage, EbayListing, EbayLocation
 
 
 @admin.register(EbayAccount)
@@ -19,3 +19,18 @@ class EbayLocationAdmin(admin.ModelAdmin):
     """Show which warehouse is mirrored under which merchantLocationKey."""
 
     list_display = ("merchant_location_key", "warehouse", "last_synced")
+
+
+@admin.register(EbayListing)
+class EbayListingAdmin(admin.ModelAdmin):
+    """Show each product's offer, listing id and sync state."""
+
+    list_display = ("product", "status", "listing_id", "category_name", "last_synced", "sync_error")
+    list_filter = ("status",)
+
+
+@admin.register(EbayImage)
+class EbayImageAdmin(admin.ModelAdmin):
+    """Show which product images are already hosted by eBay."""
+
+    list_display = ("source_name", "eps_url", "expires_at")
