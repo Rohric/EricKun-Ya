@@ -11,6 +11,7 @@ from ebay_app.services.oauth import call
 UPLOAD_PATH = "/commerce/media/v1_beta/image/create_image_from_file"
 MAX_IMAGES = 24  # eBay's limit per listing
 NO_IMAGES = "eBay verlangt mindestens ein Bild. Bitte zuerst ein Bild am Artikel hochladen."
+FILE_MISSING = "Die Bilddatei „{name}“ fehlt auf der Festplatte. Bitte das Bild am Artikel neu hochladen."
 
 
 def image_urls(product):
@@ -38,6 +39,10 @@ def _hosted_url(image):
 
 def _upload(image):
     """Send the image file to eBay as multipart form data."""
-    with image.image.open("rb") as handle:
-        files = {"image": (Path(image.image.name).name, handle)}
-        return call("POST", UPLOAD_PATH, host="media", files=files)
+    name = Path(image.image.name).name
+    try:
+        handle = image.image.open("rb")
+    except FileNotFoundError as exc:
+        raise ValidationError(FILE_MISSING.format(name=name)) from exc
+    with handle:
+        return call("POST", UPLOAD_PATH, host="media", files={"image": (name, handle)})

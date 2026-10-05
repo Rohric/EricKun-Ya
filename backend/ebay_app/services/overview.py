@@ -19,6 +19,7 @@ def connection_status():
         "policies_ready": account.has_policies,
         "location": _location_info(location),
         "ready": account.is_connected and account.has_policies and location_ok,
+        "orders_synced_at": account.orders_synced_at,
     }
 
 

@@ -3,10 +3,11 @@
 Adapter **und** Zustandshalter für den Verkaufskanal eBay. Verbindet das Tool mit dem
 eBay-Verkäuferkonto, richtet es ein und stellt Artikel aus `products_app` bei eBay ein.
 
-> **Stand:** Verbindung (A), Einrichtung (B) und Inserieren (C) sind gebaut. Verkäufe holen (D)
-> und die Inserat-Oberfläche (E) folgen. Immer erst **Sandbox**, dann Production.
+> **Stand:** Verbindung (A), Einrichtung (B), Inserieren (C), Verkäufe/Versand (D) und die
+> Oberfläche (E) sind gebaut. Immer erst **Sandbox**, dann Production.
 > Echt gegen die Sandbox geprüft sind bisher die Kategorie-, Merkmal-, Zustands- und
-> Versanddienst-Abfragen; alle Aufrufe im Namen des Verkäufers warten auf den ersten Login.
+> Versanddienst-Abfragen; alle Aufrufe im Namen des Verkäufers sind nur mit nachgestellten
+> eBay-Antworten geprüft und warten auf den ersten echten Lauf.
 
 ## Aufgaben
 
@@ -19,6 +20,8 @@ eBay-Verkäuferkonto, richtet es ein und stellt Artikel aus `products_app` bei e
   hosten, Inventory Item und Offer anlegen, veröffentlichen
 - Inserate nach lokalen Änderungen synchronisieren, beenden und automatisch beenden, sobald
   ein Artikel ausverkauft oder archiviert ist
+- eBay-Verkäufe als Bestellungen in `orders_app` anlegen, eBay-Stornos übernehmen
+- Versand mit Dienstleister und Trackingnummer an eBay melden
 
 ## Models
 
@@ -32,6 +35,9 @@ eBay-Verkäuferkonto, richtet es ein und stellt Artikel aus `products_app` bei e
   `offer_id`, `listing_id`, `status` (Entwurf / Online / Beendet), `synced_quantity`,
   `last_synced`, `sync_error`. Berechnet: `has_unsynced_changes` (Artikel nach der letzten
   Übertragung geändert oder Menge weicht ab), `state` (Anzeige: Fehler und „geändert" gehen vor).
+- **`EbayCategoryMapping`**: OneToOne zu `products_app.Category`, `ebay_category_id`,
+  `ebay_category_name` – die zuletzt gewählte eBay-Kategorie je interner Kategorie
+  (Merkliste statt gespiegeltem eBay-Kategoriebaum).
 - **`EbayImage`**: OneToOne zu `products_app.ProductImage`, `eps_url`, `source_name`,
   `expires_at` – merkt sich die von eBay gehostete Bild-URL, damit jede Datei nur einmal
   hochgeladen wird.
@@ -56,8 +62,13 @@ eBay-Verkäuferkonto, richtet es ein und stellt Artikel aus `products_app` bei e
 - `services/images.py` – Bilddateien über die Media API zu eBay hochladen (die Desktop-App hat
   keine öffentlichen URLs)
 - `services/listings.py` – `publish` (Kategorie + Merkmale speichern, übertragen,
-  veröffentlichen), `sync`, `withdraw`, `sync_all`, `end_if_unsellable`, `remove_item`.
-  Ein vorhandenes Offer zur SKU wird übernommen statt ein zweites anzulegen
+  veröffentlichen, Kategorie merken), `sync`, `withdraw`, `sync_all`, `end_if_unsellable`,
+  `remove_item`, `requirements`. Ein vorhandenes Offer zur SKU wird übernommen statt ein
+  zweites anzulegen; ob veröffentlicht werden muss, entscheidet eBays eigener Offer-Status
+- `services/orders.py` – `import_orders` (Fulfillment API `getOrders` seit dem letzten Abruf,
+  erster Lauf 90 Tage; neue bezahlte Bestellung → `Order` + Positionen + Bestand, bei eBay
+  storniert → `cancel_order`), `report_shipment` (`createShippingFulfillment`), `CARRIERS`.
+  Eine unbekannte SKU wird als Position ohne Artikel angelegt und im Ergebnis gemeldet
 - `services/overview.py` – Status für die Checkliste im Frontend
 - `signals.py` – Artikel ausverkauft/archiviert → Inserat beenden; Artikel gelöscht →
   Inventory Item bei eBay löschen. Läuft nach dem Commit, eBay-Fehler landen in `sync_error`
@@ -84,28 +95,34 @@ beendet das Inserat.
 | GET / PUT | `/api/ebay/policies/` | Policy-Werte lesen / alle drei Policies speichern |
 | POST | `/api/ebay/location/sync/` | Standard-Lagerort an eBay übertragen |
 | GET | `/api/ebay/categories/suggest/?q=` | eBay-Kategorien zu einem Titel vorschlagen |
-| GET | `/api/ebay/categories/<id>/requirements/` | Merkmale und erlaubte Zustands-IDs einer Kategorie |
+| GET | `/api/ebay/categories/<id>/requirements/` | Merkmale und erlaubte Zustands-IDs einer Kategorie; `?product=<id>` ergänzt einen Zustands-Hinweis |
 | GET | `/api/ebay/listings/` | Verkaufbare Artikel mit Inserat-Status (`?page=` optional) |
 | POST | `/api/ebay/listings/<product_id>/publish/` | Body `category_id`, `category_name`, `aspects`: inserieren |
 | POST | `/api/ebay/listings/<product_id>/sync/` | Aktuellen Stand übertragen; beendetes Inserat geht wieder online |
 | POST | `/api/ebay/listings/<product_id>/withdraw/` | Inserat beenden |
 | POST | `/api/ebay/listings/sync-all/` | Alle geänderten Inserate übertragen, liefert `synced` / `failed` |
+| POST | `/api/ebay/orders/import/` | eBay-Verkäufe abholen, liefert `created` / `cancelled` / `unknown_skus` |
+| POST | `/api/ebay/orders/<order_id>/ship/` | Body `carrier`, `tracking_number`: Versand an eBay melden |
+| GET | `/api/ebay/carriers/` | Versanddienstleister für die Versandmeldung |
 
 `aspects` hat die Form `{"Marke": ["Nintendo"], "Farbe": ["Schwarz"]}` und wird im
 `Product.aspects` gespeichert.
 
+**Nicht enthalten:** Storno oder Erstattung **an** eBay senden. Eine eBay-Bestellung wird bei
+eBay storniert; der nächste Abruf übernimmt das Storno und bucht den Bestand zurück.
+
 ## Verbindungen
 
-- Kennt `logistics_app` (Lagerort), `products_app` (Artikel, Bilder) und später `orders_app` –
-  **nie umgekehrt** (einseitige Code-Abhängigkeit). Auf Artikel-Änderungen reagiert die App
-  über Signals, `products_app` weiß nichts von eBay.
+- Kennt `logistics_app` (Lagerort), `products_app` (Artikel, Bilder, Kategorien) und
+  `orders_app` (Bestellungen, Storno) – **nie umgekehrt** (einseitige Code-Abhängigkeit).
+  Auf Artikel-Änderungen reagiert die App über Signals, `products_app` weiß nichts von eBay.
 - Einstellungen aus `core/settings.py` (`EBAY_*` aus der `.env`).
 
 ## Dateien
 
-- `models.py` – `EbayAccount`, `EbayLocation`, `EbayListing`, `EbayImage`
+- `models.py` – `EbayAccount`, `EbayLocation`, `EbayListing`, `EbayCategoryMapping`, `EbayImage`
 - `client.py`, `crypto.py`, `exceptions.py`, `signals.py`
 - `services/` – `oauth.py`, `account.py`, `locations.py`, `taxonomy.py`, `conditions.py`,
-  `images.py`, `listings.py`, `overview.py`
+  `images.py`, `listings.py`, `orders.py`, `overview.py`
 - `api/serializers.py`, `api/views.py`, `api/urls.py`
 - `admin.py` – Verbindung, Lagerort-Keys, Inserate, gehostete Bilder (Tokens werden nie angezeigt)

@@ -1,4 +1,4 @@
-"""Order and line-item models; an order groups items sold in one purchase."""
+"""Order, line-item and cancellation models; an order groups items sold in one purchase."""
 
 from decimal import Decimal
 
@@ -25,13 +25,16 @@ class Order(models.Model):
         default=Fulfillment.OPEN,
     )
     tracking_number = models.CharField(max_length=64, blank=True)
-    # Buyer / shipping details: entered manually now, filled by the eBay sync later.
+    shipping_carrier = models.CharField(max_length=40, blank=True)
+    # Buyer / shipping details: entered manually or filled by the eBay order import.
     buyer_name = models.CharField(max_length=255, blank=True)
     ship_street = models.CharField(max_length=255, blank=True)
     ship_zip = models.CharField(max_length=20, blank=True)
     ship_city = models.CharField(max_length=120, blank=True)
     ship_country = models.CharField(max_length=80, blank=True)
     ebay_username = models.CharField(max_length=120, blank=True)
+    # Id of the sale on eBay; NULL for manual orders so the unique check ignores them.
+    ebay_order_id = models.CharField(max_length=40, unique=True, null=True, blank=True)
     return_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -59,10 +62,12 @@ class OrderItem(models.Model):
     )
     sold_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    ebay_line_item_id = models.CharField(max_length=40, blank=True)
 
     def __str__(self):
         """Return a readable label for admin and shell."""
-        return f"{self.quantity} × {self.product.title}"
+        title = self.product.title if self.product_id else "(gelöschter Artikel)"
+        return f"{self.quantity} × {title}"
 
     @property
     def subtotal(self):
@@ -75,3 +80,26 @@ class OrderItem(models.Model):
         if not self.product_id:
             return Decimal("0")
         return (self.sold_price - self.product.purchase_price) * self.quantity
+
+
+class Cancellation(models.Model):
+    """Record why and how an order was cancelled."""
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Manuell"
+        EBAY = "ebay", "eBay"
+
+    class ItemAction(models.TextChoices):
+        AVAILABLE = "available", "Wieder verfügbar"
+        ARCHIVE = "archive", "Ins Archiv"
+        DELETE = "delete", "Artikel gelöscht"
+
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="cancellation")
+    reason = models.TextField(blank=True)
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.MANUAL)
+    item_action = models.CharField(max_length=10, choices=ItemAction.choices, default=ItemAction.AVAILABLE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        """Return a readable label for admin and shell."""
+        return f"Storno Order #{self.order_id} ({self.get_source_display()})"

@@ -29,6 +29,7 @@ async function refresh() {
   _renderConnection(status);
   _toggleSetup(status.connected);
   if (status.connected) await _loadSetup(status);
+  await loadListings(status);  // see ebay-listings.js
 }
 
 function _renderBadge(environment) {

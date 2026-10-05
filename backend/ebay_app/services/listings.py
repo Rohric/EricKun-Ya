@@ -8,9 +8,9 @@ from rest_framework.exceptions import APIException, ValidationError
 
 from ebay_app import client
 from ebay_app.exceptions import EbayApiError
-from ebay_app.models import EbayAccount, EbayListing, EbayLocation
+from ebay_app.models import EbayAccount, EbayCategoryMapping, EbayListing, EbayLocation
 from ebay_app.services import images, taxonomy
-from ebay_app.services.conditions import condition_note, ebay_condition
+from ebay_app.services.conditions import condition_hint, condition_note, ebay_condition
 from ebay_app.services.oauth import call
 from ebay_app.services.overview import connection_status
 from products_app.models import Product
@@ -33,8 +33,12 @@ MISSING_ASPECTS = "Pflicht-Merkmale fehlen: {names}"
 # --- Overview ---
 
 def listing_products():
-    """Return all products with their eBay listing and images preloaded."""
-    return Product.objects.select_related("ebay_listing").prefetch_related("images").order_by("-created_at")
+    """Return all products with listing, remembered eBay category and images preloaded."""
+    return (
+        Product.objects.select_related("ebay_listing", "category__parent", "category__ebay_mapping")
+        .prefetch_related("images")
+        .order_by("-created_at")
+    )
 
 
 def active_listing_products():
@@ -49,15 +53,25 @@ def listing_url(listing):
     return f"{client.environment()['web']}/itm/{listing.listing_id}"
 
 
+def requirements(category_id, product_id=""):
+    """Return a category's aspects and conditions, plus a condition hint for one product."""
+    data = taxonomy.category_requirements(category_id)
+    product = Product.objects.filter(pk=product_id).first() if str(product_id).isdigit() else None
+    data["condition_hint"] = condition_hint(product, set(data["condition_ids"])) if product else ""
+    return data
+
+
 # --- Actions ---
 
 def publish(product, category, aspects):
-    """Store the chosen category and aspects, then put the product online."""
+    """Store the chosen category and aspects, put the product online and remember the category."""
     _require_sellable(product)
     _store_aspects(product, category["id"], aspects)
     defaults = {"category_id": category["id"], "category_name": category["name"]}
     listing, _ = EbayListing.objects.update_or_create(product=product, defaults=defaults)
-    return _push(listing)
+    _push(listing)
+    _remember_category(product, category)
+    return listing
 
 
 def sync(product):
@@ -70,7 +84,7 @@ def sync(product):
 def withdraw(product):
     """End the product's eBay listing; the offer stays and can be published again."""
     listing = _listing_of(product)
-    if listing.status == ONLINE:
+    if listing.offer_id and _published_listing_id(listing):
         call("POST", f"{INVENTORY}/offer/{listing.offer_id}/withdraw")
     listing.listing_id = ""
     return _mark(listing, EbayListing.Status.ENDED)
@@ -100,7 +114,7 @@ def remove_item(sku):
         logger.warning("Could not remove %s from eBay: %s", sku, exc.detail)
 
 
-# --- Checks ---
+# --- Checks and bookkeeping ---
 
 def _require_sellable(product):
     """Raise unless eBay is fully set up and the product can be offered."""
@@ -132,51 +146,12 @@ def _store_aspects(product, category_id, aspects):
     product.save(update_fields=["aspects", "updated_at"])
 
 
-# --- Transfer ---
-
-def _push(listing):
-    """Transfer item and offer, publish the offer if needed and record the synced state."""
-    sku = listing.product.sku
-    call("PUT", f"{INVENTORY}/inventory_item/{sku}", headers=LANGUAGE, json=_item_payload(listing))
-    _save_offer(listing)
-    if listing.status != ONLINE:
-        listing.listing_id = call("POST", f"{INVENTORY}/offer/{listing.offer_id}/publish")["listingId"]
-    return _mark(listing, ONLINE)
-
-
-def _save_offer(listing):
-    """Create the offer or update the existing one, so a SKU never gets a second offer."""
-    if not listing.offer_id:
-        _adopt_remote_offer(listing)
-    payload = _offer_payload(listing)
-    if listing.offer_id:
-        call("PUT", f"{INVENTORY}/offer/{listing.offer_id}", headers=LANGUAGE, json=payload)
-    else:
-        listing.offer_id = call("POST", f"{INVENTORY}/offer", headers=LANGUAGE, json=payload)["offerId"]
-    listing.save(update_fields=["offer_id", "listing_id", "status"])
-
-
-def _adopt_remote_offer(listing):
-    """Take over an offer eBay already has for the SKU (e.g. after a database reset)."""
-    offer = _remote_offer(listing.product.sku)
-    if offer is None:
+def _remember_category(product, category):
+    """Remember the eBay category for the product's internal category (pre-selected next time)."""
+    if not product.category_id:
         return
-    listing.offer_id = offer["offerId"]
-    if offer.get("status") == "PUBLISHED":
-        listing.listing_id = (offer.get("listing") or {}).get("listingId", "")
-        listing.status = ONLINE
-
-
-def _remote_offer(sku):
-    """Return eBay's offer for a SKU, or None (eBay answers 404 if there is none)."""
-    params = {"sku": sku, "marketplace_id": settings.EBAY_MARKETPLACE_ID}
-    try:
-        offers = call("GET", f"{INVENTORY}/offer", params=params).get("offers", [])
-    except EbayApiError as exc:
-        if exc.http_status == 404:
-            return None
-        raise
-    return offers[0] if offers else None
+    defaults = {"ebay_category_id": category["id"], "ebay_category_name": category["name"]}
+    EbayCategoryMapping.objects.update_or_create(category_id=product.category_id, defaults=defaults)
 
 
 def _mark(listing, status):
@@ -203,6 +178,54 @@ def _error_text(exc):
     """Return an API exception's detail as one plain string."""
     detail = exc.detail
     return " ".join(str(part) for part in detail) if isinstance(detail, list) else str(detail)
+
+
+# --- Transfer ---
+
+def _push(listing):
+    """Transfer item and offer, publish the offer unless eBay already shows it, record the state."""
+    sku = listing.product.sku
+    call("PUT", f"{INVENTORY}/inventory_item/{sku}", headers=LANGUAGE, json=_item_payload(listing))
+    _save_offer(listing)
+    listing.listing_id = _published_listing_id(listing) or _publish_offer(listing)
+    return _mark(listing, ONLINE)
+
+
+def _save_offer(listing):
+    """Create the offer or update the existing one, so a SKU never gets a second offer."""
+    if not listing.offer_id:
+        listing.offer_id = _remote_offer_id(listing.product.sku)
+    payload = _offer_payload(listing)
+    if listing.offer_id:
+        call("PUT", f"{INVENTORY}/offer/{listing.offer_id}", headers=LANGUAGE, json=payload)
+    else:
+        listing.offer_id = call("POST", f"{INVENTORY}/offer", headers=LANGUAGE, json=payload)["offerId"]
+    listing.save(update_fields=["offer_id"])
+
+
+def _remote_offer_id(sku):
+    """Return the id of an offer eBay already has for the SKU, or "" (eBay answers 404 if none)."""
+    params = {"sku": sku, "marketplace_id": settings.EBAY_MARKETPLACE_ID}
+    try:
+        offers = call("GET", f"{INVENTORY}/offer", params=params).get("offers", [])
+    except EbayApiError as exc:
+        if exc.http_status == 404:
+            return ""
+        raise
+    return offers[0]["offerId"] if offers else ""
+
+
+def _published_listing_id(listing):
+    """Return the listing id if eBay shows the offer as published, else "" (eBay's state decides)."""
+    offer = call("GET", f"{INVENTORY}/offer/{listing.offer_id}")
+    if offer.get("status") != "PUBLISHED":
+        return ""
+    return (offer.get("listing") or {}).get("listingId", "")
+
+
+def _publish_offer(listing):
+    """Publish the offer and return the id of the new eBay listing."""
+    return call("POST", f"{INVENTORY}/offer/{listing.offer_id}/publish")["listingId"]
 
 
 # --- Payloads ---

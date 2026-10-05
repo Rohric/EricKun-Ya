@@ -1,4 +1,4 @@
-"""API views for the eBay connection, the seller setup and the listings."""
+"""API views for the eBay connection, the seller setup, the listings and the sales."""
 
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
@@ -7,7 +7,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.pagination import OptionalPagePagination
-from ebay_app.services import account, listings, locations, oauth, overview, taxonomy
+from ebay_app.services import account, listings, locations, oauth, orders, overview, taxonomy
+from orders_app.api.serializers import OrderSerializer
+from orders_app.models import Order
 from products_app.models import Product
 
 from .serializers import (
@@ -15,6 +17,7 @@ from .serializers import (
     ListingProductSerializer,
     PolicyFormSerializer,
     PublishSerializer,
+    ShipmentSerializer,
 )
 
 NO_QUERY = "Bitte einen Suchbegriff angeben (?q=)."
@@ -132,8 +135,9 @@ class CategoryRequirementsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, category_id):
-        """Return the aspects to fill in and the allowed condition ids."""
-        return Response(taxonomy.category_requirements(category_id))
+        """Return aspects and allowed condition ids; ?product=<id> adds a condition hint."""
+        product_id = request.query_params.get("product", "")
+        return Response(listings.requirements(category_id, product_id))
 
 
 class ListingList(generics.ListAPIView):
@@ -194,3 +198,37 @@ class ListingSyncAllView(APIView):
     def post(self, request):
         """Sync all changed listings and return how many succeeded and failed."""
         return Response(listings.sync_all())
+
+
+class OrderImportView(APIView):
+    """Fetch new and changed sales from eBay."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Import eBay orders and return the counts of created and cancelled orders."""
+        return Response(orders.import_orders())
+
+
+class OrderShipView(APIView):
+    """Report the shipment of an eBay order."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Send carrier and tracking number to eBay and mark the order shipped."""
+        order = generics.get_object_or_404(Order, pk=pk)
+        serializer = ShipmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        orders.report_shipment(order, **serializer.validated_data)
+        return Response(OrderSerializer(order).data)
+
+
+class CarrierListView(APIView):
+    """List the shipping carriers that can be reported to eBay."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return code/name pairs for the carrier dropdown."""
+        return Response(orders.CARRIERS)

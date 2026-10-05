@@ -10,12 +10,16 @@ from core.pagination import OptionalPagePagination
 from orders_app import services
 from orders_app.models import Order
 
-from .serializers import OrderSerializer
+from .serializers import CancelSerializer, OrderSerializer
 
 
 def _order_queryset():
-    """Return orders with items and their products preloaded (avoids N+1 queries)."""
-    return Order.objects.prefetch_related("items__product").order_by("-sold_at", "-id")
+    """Return orders with items, products and cancellation preloaded (avoids N+1 queries)."""
+    return (
+        Order.objects.select_related("cancellation")
+        .prefetch_related("items__product")
+        .order_by("-sold_at", "-id")
+    )
 
 
 class OrderList(generics.ListCreateAPIView):
@@ -53,13 +57,14 @@ class OrderDetail(generics.RetrieveUpdateDestroyAPIView):
 
 
 class OrderCancelView(APIView):
-    """Cancel an order: restock its items and apply the chosen product action."""
+    """Cancel an order: restock its items, record the reason, apply the product action."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        """Cancel the order; body 'item_action' = available | archive | delete."""
+        """Cancel the order; body 'item_action' = available | archive | delete, optional 'reason'."""
         order = generics.get_object_or_404(Order, pk=pk)
-        services.cancel_order(order, request.data.get("item_action", "available"))
-        order.refresh_from_db()
-        return Response(OrderSerializer(order).data)
+        serializer = CancelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.cancel_order(order, **serializer.validated_data)
+        return Response(OrderSerializer(_order_queryset().get(pk=pk)).data)

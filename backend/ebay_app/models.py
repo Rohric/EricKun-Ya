@@ -1,10 +1,10 @@
-"""eBay-side state: account connection, policy ids, inventory locations, listings and hosted images."""
+"""eBay-side state: account, policy ids, inventory locations, listings, category memory, hosted images."""
 
 from django.db import models
 from django.utils import timezone
 
 from logistics_app.models import Warehouse
-from products_app.models import Product, ProductImage
+from products_app.models import Category, Product, ProductImage
 
 
 class EbayAccount(models.Model):
@@ -105,6 +105,18 @@ class EbayListing(models.Model):
         if self.has_unsynced_changes:
             return "changed"
         return self.status
+
+
+class EbayCategoryMapping(models.Model):
+    """Remember the eBay category last chosen for products of an internal category."""
+
+    category = models.OneToOneField(Category, on_delete=models.CASCADE, related_name="ebay_mapping")
+    ebay_category_id = models.CharField(max_length=16)
+    ebay_category_name = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        """Return a readable label for admin and shell."""
+        return f"{self.category} → {self.ebay_category_name or self.ebay_category_id}"
 
 
 class EbayImage(models.Model):

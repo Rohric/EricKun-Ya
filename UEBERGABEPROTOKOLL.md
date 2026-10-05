@@ -67,7 +67,7 @@ per Knopfdruck auf eBay inserieren.
 | `orders_app` | fertig | `Order` (Käufer- und Lieferdaten, Status inkl. „In Reklamation"/„Storniert", `return_note`), `OrderItem` (`product` mit `SET_NULL`); automatische Bestandsführung, Bestandsprüfung, Storno-Endpoint mit Artikel-Aktion; alles transaktional |
 | `finance_app` | fertig | `Goal`, `FinanceSettings` (Rücklagensatz); Steuerrechnung Brutto = Rücklage + Netto, Monatsumsatz, Einkauf; stornierte Bestellungen zählen nicht mit |
 | `logistics_app` | fertig (Stufe 1) | `Warehouse` – ein Standard-Lagerort; später Lagerplätze, Einlagern, Finden |
-| `ebay_app` | **A + B + C gebaut (uncommittet), echter Test offen** | siehe Abschnitt 6 |
+| `ebay_app` | **A–E gebaut (D + E uncommittet), echter Sandbox-Lauf offen** | siehe Abschnitt 6 |
 
 **Wichtige Detail-Entscheidungen:**
 - Archiv = Artikel mit Status `sold` oder `archived`. Menge 0 durch Verkauf → `sold`;
@@ -130,39 +130,58 @@ Bilder), `auth.js`, `ui.js` (Navigation, `showMessage`, `errorText`, `escapeHtml
 Bekanntes Sandbox-Problem: Das Opt-in zu Business Policies schlägt manchmal fehl; Umweg
 über eBays API Explorer.
 
-### Nachtrag 2026-10-05 (zweite Sitzung) – C gebaut, uncommittet
+### Nachtrag 2026-10-05 (zweite Sitzung) – C, D und E gebaut
 
-Freigegebener Plan für den Rest: `C:\Users\emilm\.claude\plans\erstelle-einen-plan-und-shimmying-puffin.md`.
+Freigegebener Plan: `C:\Users\emilm\.claude\plans\erstelle-einen-plan-und-shimmying-puffin.md`.
+C ist committet (`ed40456`); D, E, die Kategorie-Merkliste und Korrekturen an C sind noch
+uncommittet.
 
 - **Entscheidungen:** eBay-Kategorie und Pflicht-Merkmale werden beim Inserieren gewählt ·
   Sync manuell per Button, nur Bestand 0 / archiviert beendet das Inserat automatisch ·
   Verkäufe per Button und automatisch beim Öffnen abholen · Versand an eBay melden ·
-  eBay-Stornos übernehmen · eigenes Model `Cancellation` in `orders_app`.
-- **C – Inserieren (Backend fertig):** Models `EbayListing`, `EbayImage`, Feld
-  `EbayAccount.orders_synced_at` (Migration `0002_listings_and_images`, angewendet).
-  Services `taxonomy`, `conditions`, `images`, `listings`; `signals.py`; sieben neue Endpoints
-  (siehe `backend/ebay_app/README.md`). Das Frontend dafür kommt mit Stufe E.
+  eBay-Stornos übernehmen · eigenes Model `Cancellation` in `orders_app` · eBays
+  Kategoriebaum wird **nicht** gespiegelt, stattdessen merkt sich `EbayCategoryMapping` die
+  zuletzt gewählte eBay-Kategorie je interner Kategorie.
+- **C – Inserieren:** Models `EbayListing`, `EbayImage`, `EbayCategoryMapping`, Feld
+  `EbayAccount.orders_synced_at`; Services `taxonomy`, `conditions`, `images`, `listings`;
+  `signals.py`.
+- **D – Verkäufe:** `orders_app` hat `Order.ebay_order_id`, `Order.shipping_carrier`,
+  `OrderItem.ebay_line_item_id` und das Model `Cancellation`; `ebay_app/services/orders.py`
+  importiert Bestellungen, übernimmt eBay-Stornos und meldet den Versand.
+- **E – Frontend:** Karte „4. Inserate" im eBay-Reiter mit Inserieren-Dialog
+  (`js/ebay-listings.js`); Bestellseite mit „eBay-Verkäufe abholen", „Versand melden" und
+  Storno-Grund; automatischer Abruf über `js/ebay-orders.js` (Dashboard + Bestellungen).
+- **Migrationen (angewendet):** `ebay_app` `0002_listings_and_images`, `0003_category_mapping`;
+  `orders_app` `0006_ebay_fields_and_cancellation`. Alle Endpoints stehen in den App-READMEs.
 - **Echt gegen die Sandbox geprüft (App-Token):** Kategorie-Vorschläge, Merkmale, erlaubte
   Zustände, Versanddienste. Erkenntnisse: Viele Kategorien erlauben nur die Zustände
   1000 / 1500 / 3000 / 7000 – deshalb weicht das Mapping auf „Gebraucht" aus. eBay liefert
   Versanddienste mehrfach je Code – wird jetzt dedupliziert.
-- **Nur simuliert geprüft:** der komplette Ablauf Inserieren → Ändern → Synchronisieren →
-  Ausverkauft → Beenden → Löschen mit nachgestellten eBay-Antworten.
-- **Offen, braucht Emils einmaligen eBay-Login in der App:** echter Lauf von Opt-in, Policies,
-  Lagerort, Bild-Upload (Media API, Host `apim.sandbox.ebay.com` – unbestätigt), Inventory Item,
-  Offer, Publish. Danach ruft die Assistenz alle eBay-Endpoints selbst über die Django-Shell auf.
-- **Daten:** Standard-Lagerort „Lager", Teststraße 1, 66333 Völklingen wurde als Testadresse angelegt.
+- **Nur mit nachgestellten eBay-Antworten geprüft:** Inserieren, Ändern, Synchronisieren,
+  Ausverkauf, Beenden, Bestell-Import (neu, doppelt, unbekannte SKU, unbezahlt, storniert),
+  Versandmeldung, Storno mit Grund – per API-Skript und einmal im Browser gegen eine Kopie
+  der Daten.
+- **Noch nie echt gelaufen:** jeder Aufruf im Namen des Verkäufers – Opt-in, Policies,
+  Lagerort, Bild-Upload (Media API, Host `apim.sandbox.ebay.com`, unbestätigt), Inventory Item,
+  Offer, Publish, `getOrders`, `createShippingFulfillment`. Braucht Emils einmaligen eBay-Login
+  in der App; danach kann die Assistenz alle eBay-Endpoints über die Django-Shell aufrufen
+  (`ebay_app.services.oauth.call`).
+- **Nicht enthalten:** Storno/Erstattung an eBay senden, echte eBay-Gebühren (Finances API),
+  Käufernachrichten.
+- **Daten:** Standard-Lagerort „Lager", Teststraße 1, 66333 Völklingen wurde als Testadresse
+  angelegt. Das Bild `test.png` des Artikels „Vintage Kamera" ist ein **Platzhalter**: das
+  Original wurde bei einem Testlauf der Assistenz gelöscht (Lösch-Signal entfernt Dateien,
+  der DB-Rollback stellt sie nicht wieder her).
+- **Arbeitsteilung beim Testen:** Emil testet das Frontend selbst, die Assistenz macht API-Tests.
 - **Postman** (Workspace `Erik-Kun_Ya`): Environment `EricKun-Ya – Sandbox`, Collections
-  `eBay Sandbox (direkt)` und `EricKun-Ya API (Django)`. Die Ordner für Inserate und Verkäufe
-  in der Django-Collection fehlen noch.
+  `eBay Sandbox (direkt)` und `EricKun-Ya API (Django)` (inkl. Ordner „eBay – Inserate" und
+  „eBay – Verkäufe").
 
 ### Danach
-- **D – Verkäufe, Versand, Storno:** `getOrders` (Fulfillment API) → Bestellungen mit
-  Käuferdaten in `orders_app`, Bestand automatisch buchen; Versand melden; `Cancellation`.
-- **E – Frontend:** Abschnitt „Inserate" im eBay-Reiter (Status je Artikel, Inserieren-Dialog
-  mit Kategorie und Merkmalen, Synchronisieren, Beenden), eBay-Funktionen im Bestell-Reiter.
+- **Echter Sandbox-Durchlauf:** verbinden → Policies → Lagerort → inserieren → als Buyer
+  kaufen → Verkäufe abholen → Versand melden; dabei abgelehnte Payloads korrigieren.
 - Später: Production-Keyset (inkl. Pflicht-Entscheidung zu „Marketplace Account Deletion"),
-  Desktop-Packaging, Angular.
+  Storno an eBay, Finances API, Desktop-Packaging, Angular.
 
 ## 7. Starten
 

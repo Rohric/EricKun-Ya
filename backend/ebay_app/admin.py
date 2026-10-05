@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from ebay_app.models import EbayAccount, EbayImage, EbayListing, EbayLocation
+from ebay_app.models import EbayAccount, EbayCategoryMapping, EbayImage, EbayListing, EbayLocation
 
 
 @admin.register(EbayAccount)
@@ -27,6 +27,13 @@ class EbayListingAdmin(admin.ModelAdmin):
 
     list_display = ("product", "status", "listing_id", "category_name", "last_synced", "sync_error")
     list_filter = ("status",)
+
+
+@admin.register(EbayCategoryMapping)
+class EbayCategoryMappingAdmin(admin.ModelAdmin):
+    """Show which eBay category is remembered for which internal category."""
+
+    list_display = ("category", "ebay_category_name", "ebay_category_id")
 
 
 @admin.register(EbayImage)

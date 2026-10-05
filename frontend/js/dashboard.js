@@ -17,6 +17,15 @@ async function init() {
   } catch (err) {
     showMessage(errorText(err));
   }
+  _fetchEbaySales();
+}
+
+// Pick up new eBay sales in the background and refresh the numbers if something came in.
+async function _fetchEbaySales() {
+  const result = await autoImportEbayOrders();
+  if (!ebayImportChanged(result)) return;
+  showMessage(ebayImportText(result), false);
+  await Promise.all([_loadTiles(), _loadGoals()]).catch(() => {});
 }
 
 function _selectPeriod(preset) {

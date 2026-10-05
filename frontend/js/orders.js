@@ -7,18 +7,26 @@ const FULFILLMENT = {
   open: "Offen", packed: "Verpackt", shipped: "Verschickt",
   delivered: "Zugestellt", in_return: "In Reklamation", cancelled: "Storniert",
 };
+const CANCEL_SOURCES = { manual: "Manuell storniert", ebay: "Bei eBay storniert" };
+const SHIPPABLE = ["open", "packed"];
 
 let productsCache = [];
+let ordersCache = [];
 let currentPage = 1;
 let cancelOrderId = null;
+let shipOrderId = null;
+let carriersLoaded = false;
 
 document.getElementById("new-order-btn").addEventListener("click", _openNewForm);
+document.getElementById("ebay-import-btn").addEventListener("click", _importFromEbay);
 document.getElementById("cancel-order").addEventListener("click", _closeForm);
 document.getElementById("add-item").addEventListener("click", () => _addItemRow());
 document.getElementById("order-form").addEventListener("submit", _saveOrder);
 document.getElementById("o-status").addEventListener("change", _syncReturnNote);
 document.getElementById("confirm-cancel").addEventListener("click", _confirmCancel);
 document.getElementById("abort-cancel").addEventListener("click", _closeCancelModal);
+document.getElementById("ship-form").addEventListener("submit", _confirmShip);
+document.getElementById("abort-ship").addEventListener("click", _closeShipModal);
 
 init();
 
@@ -29,6 +37,7 @@ async function init() {
   } catch (err) {
     showMessage(errorText(err));
   }
+  _autoImport();
 }
 
 // Load active products that still have stock (for new-order positions).
@@ -36,11 +45,40 @@ async function _loadProductsCache() {
   productsCache = (await apiGet("/products/?view=active")).filter((p) => p.quantity > 0);
 }
 
+function _reloadAll() {
+  return Promise.all([loadOrders(), _loadProductsCache()]);
+}
+
+// --- eBay import ---
+
+// Background import when the page opens; only speaks up if something came in.
+async function _autoImport() {
+  const result = await autoImportEbayOrders();
+  if (!ebayImportChanged(result)) return;
+  showMessage(ebayImportText(result), false);
+  await _reloadAll().catch(() => {});
+}
+
+async function _importFromEbay() {
+  const button = document.getElementById("ebay-import-btn");
+  button.disabled = true;
+  try {
+    const result = await importEbayOrders();
+    showMessage(ebayImportText(result), result.unknown_skus.length > 0);
+    currentPage = 1;
+    await _reloadAll();
+  } catch (err) {
+    showMessage(errorText(err));
+  }
+  button.disabled = false;
+}
+
 // --- Order list + paging ---
 
 async function loadOrders() {
   const data = await apiGet(`/orders/?page=${currentPage}`);
-  _renderRows(data.results);
+  ordersCache = data.results;
+  _renderRows(ordersCache);
   renderPager("order-pager", data, currentPage, _goToPage);
 }
 
@@ -52,9 +90,9 @@ function _goToPage(page) {
 function _renderRows(orders) {
   const rows = orders.map((o) => `
     <tr>
-      <td>${o.id}</td>
+      <td>${o.id}${o.ebay_order_id ? ' <span class="chip">eBay</span>' : ""}</td>
       <td>${_formatDate(o.sold_at)}</td>
-      <td><span class="badge badge-${o.fulfillment_status}">${FULFILLMENT[o.fulfillment_status] || o.fulfillment_status}</span></td>
+      <td>${_statusCell(o)}</td>
       <td>${escapeHtml(o.buyer_name) || "–"}</td>
       <td>${escapeHtml(o.ship_city) || "–"}</td>
       <td>${formatEuro(o.total_revenue)}</td>
@@ -64,13 +102,32 @@ function _renderRows(orders) {
     </tr>`).join("");
   document.getElementById("order-rows").innerHTML =
     rows || `<tr><td colspan="9" class="empty">Noch keine Bestellungen.</td></tr>`;
-  _bindRowActions(orders);
+  _bindRowActions();
+}
+
+// Status badge plus tracking (shipped) or the cancellation reason (cancelled).
+function _statusCell(order) {
+  const status = order.fulfillment_status;
+  const badge = `<span class="badge badge-${status}">${FULFILLMENT[status] || status}</span>`;
+  return badge + _statusNote(order);
+}
+
+function _statusNote(order) {
+  const note = (text) => `<span class="row-note">${escapeHtml(text)}</span>`;
+  if (order.cancellation) {
+    const source = CANCEL_SOURCES[order.cancellation.source] || "";
+    return note(order.cancellation.reason ? `${source}: ${order.cancellation.reason}` : source);
+  }
+  if (order.tracking_number) return note(`${order.shipping_carrier} ${order.tracking_number}`.trim());
+  return "";
 }
 
 function _rowActions(order) {
   const edit = `<button data-edit="${order.id}" class="link-btn">Bearbeiten</button>`;
   if (order.fulfillment_status === "cancelled") return edit;
-  return `${edit}<button data-cancel="${order.id}" class="link-btn danger">Storno</button>`;
+  const canShip = order.ebay_order_id && SHIPPABLE.includes(order.fulfillment_status);
+  const ship = canShip ? `<button data-ship="${order.id}" class="link-btn">Versand melden</button>` : "";
+  return `${edit}${ship}<button data-cancel="${order.id}" class="link-btn danger">Storno</button>`;
 }
 
 function _itemSummary(items) {
@@ -78,12 +135,17 @@ function _itemSummary(items) {
   return items.map((i) => `${i.quantity}× ${escapeHtml(i.product_title)}`).join(", ");
 }
 
-function _bindRowActions(orders) {
+function _bindRowActions() {
   const bind = (attr, handler) => document.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
-    btn.addEventListener("click", () => handler(Number(btn.getAttribute(`data-${attr}`))))
+    btn.addEventListener("click", () => handler(_orderById(btn.getAttribute(`data-${attr}`))))
   );
-  bind("edit", (id) => _openEditForm(orders.find((o) => o.id === id)));
+  bind("edit", _openEditForm);
   bind("cancel", _openCancelModal);
+  bind("ship", _openShipModal);
+}
+
+function _orderById(id) {
+  return ordersCache.find((order) => order.id === Number(id));
 }
 
 // --- Form ---
@@ -94,6 +156,7 @@ function _openNewForm() {
   form.reset();
   document.getElementById("order-id").value = "";
   document.getElementById("item-rows").innerHTML = "";
+  document.getElementById("ebay-order-hint").style.display = "none";
   _setItemsEditable(true);
   _addItemRow();
   _syncReturnNote();
@@ -114,6 +177,7 @@ function _openEditForm(order) {
   set("o-city", order.ship_city);
   set("o-country", order.ship_country);
   set("o-return-note", order.return_note);
+  document.getElementById("ebay-order-hint").style.display = order.ebay_order_id ? "block" : "none";
   _setItemsEditable(false);
   _syncReturnNote();
   document.getElementById("order-form").style.display = "block";
@@ -143,7 +207,7 @@ async function _saveOrder(e) {
     if (id) await apiSend(`/orders/${id}/`, "PATCH", _orderFields());
     else await _createOrder();
     _closeForm();
-    await Promise.all([loadOrders(), _loadProductsCache()]);
+    await _reloadAll();
   } catch (err) {
     showMessage(errorText(err));
   }
@@ -211,8 +275,10 @@ function _collectItems() {
 
 // --- Cancel modal ---
 
-function _openCancelModal(orderId) {
-  cancelOrderId = orderId;
+function _openCancelModal(order) {
+  cancelOrderId = order.id;
+  document.getElementById("cancel-reason").value = "";
+  document.getElementById("cancel-ebay-hint").style.display = order.ebay_order_id ? "block" : "none";
   document.getElementById("cancel-modal").style.display = "flex";
 }
 
@@ -223,14 +289,65 @@ function _closeCancelModal() {
 
 async function _confirmCancel() {
   const action = document.querySelector('input[name="item-action"]:checked').value;
+  const payload = { item_action: action, reason: inputValue("cancel-reason") };
   try {
-    await apiSend(`/orders/${cancelOrderId}/cancel/`, "POST", { item_action: action });
+    await apiSend(`/orders/${cancelOrderId}/cancel/`, "POST", payload);
     _closeCancelModal();
     showMessage("Bestellung storniert.", false);
-    await Promise.all([loadOrders(), _loadProductsCache()]);
+    await _reloadAll();
   } catch (err) {
+    _closeCancelModal();
     showMessage(errorText(err));
   }
+}
+
+// --- Ship modal (eBay orders) ---
+
+async function _openShipModal(order) {
+  shipOrderId = order.id;
+  _shipMessage("");
+  document.getElementById("ship-tracking").value = order.tracking_number || "";
+  document.getElementById("ship-modal").style.display = "flex";
+  if (!carriersLoaded) await _loadCarriers();
+}
+
+async function _loadCarriers() {
+  try {
+    const carriers = await apiGet("/ebay/carriers/");
+    document.getElementById("ship-carrier").innerHTML = carriers.map((c) =>
+      `<option value="${escapeHtml(c.code)}">${escapeHtml(c.name)}</option>`
+    ).join("");
+    carriersLoaded = true;
+  } catch (err) {
+    _shipMessage(errorText(err));
+  }
+}
+
+function _closeShipModal() {
+  shipOrderId = null;
+  document.getElementById("ship-modal").style.display = "none";
+}
+
+function _shipMessage(text) {
+  const box = document.getElementById("ship-message");
+  box.textContent = text;
+  box.style.display = text ? "block" : "none";
+}
+
+async function _confirmShip(e) {
+  e.preventDefault();
+  const payload = { carrier: inputValue("ship-carrier"), tracking_number: inputValue("ship-tracking") };
+  const button = document.getElementById("ship-submit");
+  button.disabled = true;
+  try {
+    await apiSend(`/ebay/orders/${shipOrderId}/ship/`, "POST", payload);
+    _closeShipModal();
+    showMessage("Versand an eBay gemeldet.", false);
+    await loadOrders();
+  } catch (err) {
+    _shipMessage(errorText(err));
+  }
+  button.disabled = false;
 }
 
 function _formatDate(iso) {

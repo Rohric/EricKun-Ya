@@ -2,6 +2,7 @@
 
 from django.db import transaction
 
+from orders_app.models import Cancellation
 from products_app.models import Product
 
 
@@ -24,11 +25,13 @@ def sync_stock(order, sign):
 
 
 @transaction.atomic
-def cancel_order(order, item_action):
-    """Cancel an order, restock its items and apply the chosen product action."""
+def cancel_order(order, item_action, reason="", source=Cancellation.Source.MANUAL):
+    """Cancel an order, restock its items, record why and apply the chosen product action."""
     sync_stock(order, sign=1)
     order.fulfillment_status = order.Fulfillment.CANCELLED
     order.save(update_fields=["fulfillment_status"])
+    defaults = {"reason": reason, "source": source, "item_action": item_action}
+    Cancellation.objects.update_or_create(order=order, defaults=defaults)
     _apply_item_action(order, item_action)
 
 
@@ -37,9 +40,9 @@ def _apply_item_action(order, item_action):
     for item in order.items.select_related("product"):
         if item.product is None:
             continue
-        if item_action == "delete":
+        if item_action == Cancellation.ItemAction.DELETE:
             item.product.delete()
-        elif item_action == "archive":
+        elif item_action == Cancellation.ItemAction.ARCHIVE:
             _set_status(item.product, Product.Status.ARCHIVED)
         else:
             _set_status(item.product, Product.Status.AVAILABLE)

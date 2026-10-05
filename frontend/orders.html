@@ -11,7 +11,10 @@
   <main class="page">
     <div class="page-head">
       <h1>Bestellungen</h1>
-      <button id="new-order-btn">+ Neue Bestellung</button>
+      <div class="head-actions">
+        <button id="ebay-import-btn" class="secondary">eBay-Verkäufe abholen</button>
+        <button id="new-order-btn">+ Neue Bestellung</button>
+      </div>
     </div>
     <div id="message" class="message" style="display:none"></div>
 
@@ -48,6 +51,10 @@
       <p id="items-locked-hint" class="hint" style="display:none">
         Positionen sind nach dem Anlegen fest – bei Änderungen die Bestellung stornieren und neu anlegen.
       </p>
+      <p id="ebay-order-hint" class="hint" style="display:none">
+        Diese Bestellung stammt von eBay. Den Versand bitte über „Versand melden" eintragen, damit eBay
+        und der Käufer die Trackingnummer bekommen.
+      </p>
 
       <div class="form-actions">
         <button type="submit">Speichern</button>
@@ -74,6 +81,11 @@
       <label class="radio"><input type="radio" name="item-action" value="available" checked /> Wieder verfügbar</label>
       <label class="radio"><input type="radio" name="item-action" value="archive" /> Ins Archiv</label>
       <label class="radio"><input type="radio" name="item-action" value="delete" /> Artikel löschen</label>
+      <label>Grund (optional)<textarea id="cancel-reason" rows="2"></textarea></label>
+      <p id="cancel-ebay-hint" class="hint" style="display:none">
+        Diese Bestellung stammt von eBay. Das Storno wird <strong>nicht</strong> an eBay gemeldet –
+        bitte die Bestellung auch dort stornieren.
+      </p>
       <div class="form-actions">
         <button type="button" id="confirm-cancel" class="danger-btn">Stornieren</button>
         <button type="button" id="abort-cancel" class="secondary">Abbrechen</button>
@@ -81,10 +93,27 @@
     </div>
   </div>
 
+  <div id="ship-modal" class="modal" style="display:none">
+    <form id="ship-form" class="modal-card">
+      <h3>Versand an eBay melden</h3>
+      <p class="hint">eBay markiert die Bestellung als verschickt und zeigt dem Käufer die Sendungsverfolgung.</p>
+      <div id="ship-message" class="message error" style="display:none"></div>
+      <label>Versanddienstleister<select id="ship-carrier" required></select></label>
+      <label>Trackingnummer (nur Buchstaben und Ziffern)
+        <input type="text" id="ship-tracking" required />
+      </label>
+      <div class="form-actions">
+        <button type="submit" id="ship-submit">Versand melden</button>
+        <button type="button" id="abort-ship" class="secondary">Abbrechen</button>
+      </div>
+    </form>
+  </div>
+
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/ebay-orders.js"></script>
   <script src="js/orders.js"></script>
 </body>
 </html>

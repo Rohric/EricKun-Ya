@@ -24,6 +24,7 @@ CANDIDATES = {
     Product.Condition.FOR_PARTS: ["FOR_PARTS_OR_NOT_WORKING"],
 }
 NOT_ALLOWED = "Der Zustand „{label}“ ist in dieser eBay-Kategorie nicht erlaubt."
+COARSER = "eBay kennt in dieser Kategorie nur „Gebraucht“. Dein Zustand „{label}“ steht zusätzlich als Notiz im Inserat."
 
 
 def ebay_condition(product, allowed_ids):
@@ -32,6 +33,17 @@ def ebay_condition(product, allowed_ids):
         if not allowed_ids or CONDITION_IDS[name] in allowed_ids:
             return name
     raise ValidationError(NOT_ALLOWED.format(label=product.get_condition_display()))
+
+
+def condition_hint(product, allowed_ids):
+    """Return a note for the listing form if eBay shows a coarser condition or rejects it."""
+    label = product.get_condition_display()
+    preferred = CANDIDATES[product.condition][0]
+    if not allowed_ids or CONDITION_IDS[preferred] in allowed_ids:
+        return ""
+    if any(CONDITION_IDS[name] in allowed_ids for name in CANDIDATES[product.condition]):
+        return COARSER.format(label=label)
+    return NOT_ALLOWED.format(label=label)
 
 
 def condition_note(product, condition):

@@ -29,15 +29,17 @@ frontend/
   index.html       Login + Registrierung
   dashboard.html   Startübersicht
   products.html    Artikel, Kategorien, Archiv, Bilder
-  orders.html      Bestellungen, Storno
+  orders.html      Bestellungen, Storno, eBay-Verkäufe, Versand melden
   warehouse.html   Lagerort (Versandadresse)
   finances.html    Steuerrechnung, Zeitfilter, Monatsumsatz, Ziele
-  ebay.html        eBay-Verbindung und Einrichtung
+  ebay.html        eBay-Verbindung, Einrichtung und Inserate
   css/style.css    gesamtes Styling
   js/config.js     API-Pfad, Seitengröße
   js/api.js        fetch-Wrapper mit JWT + Token-Refresh
   js/auth.js       Login, Registrierung, Logout, Seitenschutz
   js/ui.js         gemeinsame Helfer (Navigation, Formatierung, Kacheln, Pager, …)
+  js/ebay-listings.js  Inserate-Tabelle und Inserieren-Dialog im eBay-Reiter
+  js/ebay-orders.js    eBay-Verkäufe abholen (Dashboard + Bestellungen)
   js/<seite>.js    Logik je Seite
 ```
 
@@ -52,6 +54,7 @@ frontend/
 - Kacheln: Umsatz, Netto-Gewinn, Rücklage, Brutto-Gewinn
 - Zeitraum-Umschalter: Heute / Monat / Jahr / Gesamt
 - Kurzblick auf die **aktiven** Ziele mit Fortschrittsbalken, Link „Verwalten" zu Finanzen
+- Holt beim Öffnen neue eBay-Verkäufe ab (höchstens alle 10 Minuten) und meldet, was kam
 
 ### Artikel (`products.html`, `products.js`)
 - Umschalter **Aktiv / Archiv** (Archiv = verkaufte und archivierte Artikel)
@@ -74,7 +77,13 @@ frontend/
 - Bearbeiten: Status, Kunden- und Versanddaten, Tracking; bei „In Reklamation" zusätzlich
   eine Notiz. Positionen sind nach dem Anlegen fest
 - **Storno** mit Auswahl: Artikel wieder verfügbar, ins Archiv oder löschen – der Bestand
-  wird zurückgebucht
+  wird zurückgebucht. Optionaler Grund; Grund und Herkunft (manuell / eBay) stehen danach
+  unter dem Status
+- **eBay-Verkäufe abholen:** Button oben, zusätzlich automatisch beim Öffnen (höchstens alle
+  10 Minuten). eBay-Bestellungen tragen ein „eBay"-Kennzeichen
+- **Versand melden** (nur eBay-Bestellungen, Status offen / verpackt): Dienstleister und
+  Trackingnummer gehen an eBay, die Bestellung wird „Verschickt"
+- Ein Storno einer eBay-Bestellung wird **nicht** an eBay gemeldet – der Dialog weist darauf hin
 
 ### Lager (`warehouse.html`, `warehouse.js`)
 - Lagerort anlegen bzw. bearbeiten: Bezeichnung, Straße, PLZ, Ort, Ländercode
@@ -90,7 +99,7 @@ frontend/
 - Monatsumsatz als Balkendiagramm mit **Jahr-Umschalter**
 - Ziele anlegen, **bearbeiten, deaktivieren/aktivieren und löschen**
 
-### eBay (`ebay.html`, `ebay.js`)
+### eBay (`ebay.html`, `ebay.js`, `ebay-listings.js`)
 - Badge zeigt die Umgebung (Sandbox / Production)
 - **Checkliste:** Zugangsdaten in der `.env` → verbunden → Policies → Lagerort → „Bereit zum
   Inserieren"
@@ -101,6 +110,15 @@ frontend/
   Bearbeitungszeit, Rückgabefrist (Standard 30 Tage), Rücksendekosten (Standard Käufer)
 - **Lagerort:** zeigt den Standard-Lagerort und überträgt ihn an eBay
 - Einrichtung ist erst nach der Verbindung bedienbar
+- **Inserate** (bedienbar, sobald die Checkliste grün ist): Tabelle der verkaufbaren Artikel
+  mit Status „Nicht inseriert / Entwurf / Online / Geändert / Beendet / Fehler" und der
+  Fehlermeldung von eBay direkt in der Zeile
+  - **Inserieren:** Dialog mit eBay-Kategorievorschlägen zum Titel (eigener Suchbegriff
+    möglich), Pflicht-Merkmalen mit Vorschlagsliste und aufklappbaren empfohlenen Merkmalen.
+    Die zuletzt für die interne Kategorie gewählte eBay-Kategorie steht als „gemerkt" oben
+    und ist vorausgewählt, wenn eBay sie für den Titel ebenfalls vorschlägt
+  - **Synchronisieren / Alle synchronisieren**, **Beenden**, **Wieder einstellen**,
+    **Merkmale** (Kategorie und Merkmale nachträglich ändern), **Ansehen** (Inserat bei eBay)
 
 ## Gemeinsame Module
 
@@ -111,6 +129,8 @@ frontend/
 - **`ui.js`** – `renderNav`, `showMessage`, `errorText`, `escapeHtml`, `formatEuro`,
   `inputValue`, `markActive`, `renderTiles`, `renderGoalCard`, `renderPager`,
   `periodRange`, `isoDate`
+- **`ebay-orders.js`** – `importEbayOrders`, `autoImportEbayOrders` (still, nur wenn verbunden
+  und der letzte Abruf älter als 10 Minuten ist), `ebayImportChanged`, `ebayImportText`
 
 ## Authentifizierung
 
