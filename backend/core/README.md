@@ -29,6 +29,8 @@ Keine.
     Desktop-App setzt hier den vom Nutzer gewählten Ordner
   - CORS für `localhost:5500` und `localhost:4200` (späteres Angular)
   - Postgres optional über `DB_ENGINE=postgres`
+  - eBay: `EBAY_ENV`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`,
+    `EBAY_MARKETPLACE_ID`, `EBAY_TOKEN_KEY` (Schlüssel für die Token-Verschlüsselung)
 
 ## API-Endpoints
 
@@ -41,8 +43,8 @@ Keine.
 
 ## Verbindungen
 
-- `urls.py` bindet `auth_app`, `products_app`, `orders_app` und `finance_app` ein;
-  `ebay_app` folgt, sobald sie Endpoints hat.
+- `urls.py` bindet `auth_app`, `products_app`, `orders_app`, `finance_app`,
+  `logistics_app` und `ebay_app` ein.
 - `pagination.py` wird von `products_app` und `orders_app` genutzt.
 
 ## Dateien

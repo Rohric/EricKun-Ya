@@ -1,3 +1,21 @@
+"""Admin configuration for the eBay app (tokens stay hidden)."""
+
 from django.contrib import admin
 
-# Register your models here.
+from ebay_app.models import EbayAccount, EbayLocation
+
+
+@admin.register(EbayAccount)
+class EbayAccountAdmin(admin.ModelAdmin):
+    """Show connection state and policy ids; the encrypted tokens are never displayed."""
+
+    list_display = ("__str__", "connected_at", "refresh_expires_at", "has_policies")
+    exclude = ("access_token", "refresh_token", "oauth_state")
+    readonly_fields = ("access_expires_at", "refresh_expires_at", "connected_at", "oauth_state_created_at")
+
+
+@admin.register(EbayLocation)
+class EbayLocationAdmin(admin.ModelAdmin):
+    """Show which warehouse is mirrored under which merchantLocationKey."""
+
+    list_display = ("merchant_location_key", "warehouse", "last_synced")

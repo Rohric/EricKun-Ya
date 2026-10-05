@@ -8,7 +8,9 @@ function renderNav(active) {
     ["dashboard.html", "Dashboard"],
     ["products.html", "Artikel"],
     ["orders.html", "Bestellungen"],
+    ["warehouse.html", "Lager"],
     ["finances.html", "Finanzen"],
+    ["ebay.html", "eBay"],
   ];
   const items = links.map(([href, label]) =>
     `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`

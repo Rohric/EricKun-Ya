@@ -1,0 +1,34 @@
+"""Aggregate the eBay connection and setup state for the eBay tab."""
+
+from django.conf import settings
+
+from ebay_app import client
+from ebay_app.models import EbayAccount, EbayLocation
+
+
+def connection_status():
+    """Return connection, setup and readiness flags for the frontend checklist."""
+    account = EbayAccount.load()
+    location = EbayLocation.objects.select_related("warehouse").filter(warehouse__is_default=True).first()
+    location_ok = bool(location) and not location.needs_resync
+    return {
+        "environment": settings.EBAY_ENV,
+        "missing_settings": client.missing_settings(),
+        "connected": account.is_connected,
+        "refresh_expires_at": account.refresh_expires_at,
+        "policies_ready": account.has_policies,
+        "location": _location_info(location),
+        "ready": account.is_connected and account.has_policies and location_ok,
+    }
+
+
+def _location_info(location):
+    """Return the transferred default location, or None."""
+    if location is None:
+        return None
+    return {
+        "key": location.merchant_location_key,
+        "warehouse": str(location.warehouse),
+        "last_synced": location.last_synced,
+        "needs_resync": location.needs_resync,
+    }

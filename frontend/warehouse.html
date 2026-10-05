@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lager – EricKun-Ya</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="nav"></header>
+  <main class="page">
+    <div class="page-head"><h1>Lager</h1></div>
+    <div id="message" class="message" style="display:none"></div>
+
+    <section class="card">
+      <h2>Lagerort (Versandadresse)</h2>
+      <p class="hint">
+        Von hier wird verschickt. eBay bekommt diese Adresse als Artikelstandort.
+        Weitere Lager und Lagerplätze kommen später dazu.
+      </p>
+      <form id="warehouse-form" class="form-grid">
+        <label>Bezeichnung<input type="text" id="w-name" placeholder="z. B. Hauptlager" required /></label>
+        <label>Straße und Hausnummer<input type="text" id="w-street" required /></label>
+        <label>PLZ<input type="text" id="w-zip" required /></label>
+        <label>Ort<input type="text" id="w-city" required /></label>
+        <label>Land (Code)<input type="text" id="w-country" value="DE" maxlength="2" required /></label>
+        <div class="form-actions full">
+          <button type="submit">Speichern</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/warehouse.js"></script>
+</body>
+</html>

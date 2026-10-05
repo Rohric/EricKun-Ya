@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "ebay_app",
     "orders_app",
     "finance_app",
+    "logistics_app",
 ]
 
 MIDDLEWARE = [
@@ -151,3 +152,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # finance_app: default tax-reserve rate (percent) used on first settings access.
 TAX_RESERVE_RATE = os.environ.get("TAX_RESERVE_RATE", "25")
+
+# eBay API (see ebay_app). Secrets live in .env only.
+EBAY_ENV = os.environ.get("EBAY_ENV", "sandbox")
+EBAY_CLIENT_ID = os.environ.get("EBAY_CLIENT_ID", "")
+EBAY_CLIENT_SECRET = os.environ.get("EBAY_CLIENT_SECRET", "")
+EBAY_RUNAME = os.environ.get("EBAY_RUNAME", "")
+EBAY_MARKETPLACE_ID = os.environ.get("EBAY_MARKETPLACE_ID", "EBAY_DE")
+# Fernet key that encrypts the stored eBay OAuth tokens.
+EBAY_TOKEN_KEY = os.environ.get("EBAY_TOKEN_KEY", "")

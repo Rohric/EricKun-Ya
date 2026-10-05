@@ -6,7 +6,7 @@ ohne Framework.
 
 ## Überblick
 
-- Fünf Seiten: Login, Dashboard, Artikel, Bestellungen, Finanzen
+- Sieben Seiten: Login, Dashboard, Artikel, Bestellungen, Lager, Finanzen, eBay
 - Gemeinsame Navigation mit Logout auf allen Seiten außer dem Login
 - Alle Daten kommen über `/api/…` vom Django-Backend (same-origin, kein CORS nötig)
 
@@ -30,7 +30,9 @@ frontend/
   dashboard.html   Startübersicht
   products.html    Artikel, Kategorien, Archiv, Bilder
   orders.html      Bestellungen, Storno
+  warehouse.html   Lagerort (Versandadresse)
   finances.html    Steuerrechnung, Zeitfilter, Monatsumsatz, Ziele
+  ebay.html        eBay-Verbindung und Einrichtung
   css/style.css    gesamtes Styling
   js/config.js     API-Pfad, Seitengröße
   js/api.js        fetch-Wrapper mit JWT + Token-Refresh
@@ -74,6 +76,11 @@ frontend/
 - **Storno** mit Auswahl: Artikel wieder verfügbar, ins Archiv oder löschen – der Bestand
   wird zurückgebucht
 
+### Lager (`warehouse.html`, `warehouse.js`)
+- Lagerort anlegen bzw. bearbeiten: Bezeichnung, Straße, PLZ, Ort, Ländercode
+- Das ist die Adresse, von der verschickt wird; eBay bekommt sie als Artikelstandort
+- Nach einer Adressänderung im eBay-Reiter erneut übertragen
+
 ### Finanzen (`finances.html`, `finances.js`)
 - Zeitfilter: Heute / Monat / Jahr / Gesamt **oder** freier Zeitraum von–bis
 - **Steuerrechnung:** Brutto-Gewinn − Rücklage = Netto-Gewinn (stornierte Bestellungen
@@ -82,6 +89,18 @@ frontend/
 - Rücklagensatz ändern
 - Monatsumsatz als Balkendiagramm mit **Jahr-Umschalter**
 - Ziele anlegen, **bearbeiten, deaktivieren/aktivieren und löschen**
+
+### eBay (`ebay.html`, `ebay.js`)
+- Badge zeigt die Umgebung (Sandbox / Production)
+- **Checkliste:** Zugangsdaten in der `.env` → verbunden → Policies → Lagerort → „Bereit zum
+  Inserieren"
+- **Verbindung:** „Mit eBay verbinden" öffnet den eBay-Login in einem neuen Tab; danach die
+  Adresse aus der Browserleiste einfügen und „Verbindung abschließen". „Trennen" löscht die
+  gespeicherten Tokens
+- **Versand, Rückgabe, Zahlung:** Versanddienst (Liste kommt live von eBay), Versandkosten,
+  Bearbeitungszeit, Rückgabefrist (Standard 30 Tage), Rücksendekosten (Standard Käufer)
+- **Lagerort:** zeigt den Standard-Lagerort und überträgt ihn an eBay
+- Einrichtung ist erst nach der Verbindung bedienbar
 
 ## Gemeinsame Module
 

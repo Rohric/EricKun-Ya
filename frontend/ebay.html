@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>eBay – EricKun-Ya</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="nav"></header>
+  <main class="page">
+    <div class="page-head">
+      <h1>eBay</h1>
+      <span id="env-badge" class="env-badge"></span>
+    </div>
+    <div id="message" class="message" style="display:none"></div>
+
+    <section class="card">
+      <h2>Checkliste</h2>
+      <ul id="checklist" class="checklist"></ul>
+    </section>
+
+    <section class="card">
+      <h2>1. Verbindung</h2>
+      <p id="connect-status" class="hint"></p>
+      <div class="button-row">
+        <button type="button" id="connect-btn">Mit eBay verbinden</button>
+        <button type="button" id="disconnect-btn" class="secondary">Verbindung trennen</button>
+      </div>
+      <div id="finish-box" class="finish-box" style="display:none">
+        <p class="hint">
+          Im neuen Tab bei eBay anmelden (Sandbox: mit dem Testuser) und zustimmen. Danach die
+          <strong>komplette Adresse aus der Browserleiste</strong> kopieren und hier einfügen.
+          Kein neuer Tab? <a id="consent-link" href="#" target="_blank" rel="noopener">eBay-Login öffnen</a>
+        </p>
+        <label>Adresse nach dem eBay-Login
+          <input type="text" id="redirect-url" placeholder="https://…?code=…&amp;state=…" />
+        </label>
+        <button type="button" id="finish-btn">Verbindung abschließen</button>
+      </div>
+    </section>
+
+    <section class="card" id="policies-card">
+      <h2>2. Versand, Rückgabe, Zahlung</h2>
+      <form id="policies-form" class="form-grid">
+        <label>Versanddienst<select id="p-service" required></select></label>
+        <label>Versandkosten (€, 0 = kostenlos)
+          <input type="number" step="0.01" min="0" id="p-cost" required />
+        </label>
+        <label>Bearbeitungszeit
+          <select id="p-handling">
+            <option value="1">1 Werktag</option>
+            <option value="2">2 Werktage</option>
+            <option value="3">3 Werktage</option>
+            <option value="4">4 Werktage</option>
+            <option value="5">5 Werktage</option>
+            <option value="10">10 Werktage</option>
+          </select>
+        </label>
+        <label>Rückgabefrist
+          <select id="p-return-days">
+            <option value="14">14 Tage</option>
+            <option value="30" selected>30 Tage</option>
+            <option value="60">60 Tage</option>
+          </select>
+        </label>
+        <label>Rücksendekosten trägt
+          <select id="p-return-payer">
+            <option value="BUYER" selected>Käufer</option>
+            <option value="SELLER">Verkäufer</option>
+          </select>
+        </label>
+        <label>Zahlung<input type="text" value="Sofortzahlung über eBay" disabled /></label>
+        <div class="form-actions full">
+          <button type="submit">Bei eBay speichern</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card" id="location-card">
+      <h2>3. Lagerort</h2>
+      <p id="location-info" class="hint"></p>
+      <button type="button" id="location-btn">An eBay übertragen</button>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/ebay.js"></script>
+</body>
+</html>

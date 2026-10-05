@@ -203,3 +203,16 @@ button:disabled, button:disabled:hover { opacity: 0.45; cursor: default; }
 /* Goal actions */
 .goal-actions { display: flex; gap: 6px; margin-top: 4px; }
 .goal.inactive { opacity: 0.55; }
+
+/* eBay setup */
+.checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.checklist li { display: flex; align-items: center; gap: 10px; }
+.check-icon { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; background: #edf1f5; color: var(--muted); }
+.checklist li.done .check-icon { background: #e8f6ec; color: var(--ok); }
+.checklist li:last-child { font-weight: 700; }
+.env-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
+.env-sandbox { background: #fff4e0; color: #b7791f; }
+.env-production { background: #fdecec; color: var(--danger); }
+.button-row { display: flex; gap: 10px; }
+.finish-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.card.disabled { opacity: 0.5; pointer-events: none; }
