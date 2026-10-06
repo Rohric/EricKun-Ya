@@ -38,11 +38,17 @@ def import_orders():
     """Fetch new and changed eBay orders; return what was created and cancelled."""
     account = EbayAccount.load()
     started = timezone.now()
-    result = {"created": 0, "cancelled": 0, "unknown_skus": []}
-    for payload in _changed_orders(account.orders_synced_at):
-        _import_one(payload, result)
+    result = import_payloads(_changed_orders(account.orders_synced_at))
     account.orders_synced_at = started
     account.save(update_fields=["orders_synced_at"])
+    return result
+
+
+def import_payloads(payloads):
+    """Process eBay order payloads (real or simulated); return what was created and cancelled."""
+    result = {"created": 0, "cancelled": 0, "unknown_skus": []}
+    for payload in payloads:
+        _import_one(payload, result)
     return result
 
 

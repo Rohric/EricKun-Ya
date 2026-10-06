@@ -69,7 +69,7 @@ def publish(product, category, aspects):
     _store_aspects(product, category["id"], aspects)
     defaults = {"category_id": category["id"], "category_name": category["name"]}
     listing, _ = EbayListing.objects.update_or_create(product=product, defaults=defaults)
-    _push(listing)
+    _push_or_record(listing)
     _remember_category(product, category)
     return listing
 
@@ -78,7 +78,7 @@ def sync(product):
     """Push the product's current data to eBay and make sure its listing is online."""
     listing = _listing_of(product)
     _require_sellable(product)
-    return _push(listing)
+    return _push_or_record(listing)
 
 
 def withdraw(product):
@@ -169,9 +169,23 @@ def _try(action, listing):
     try:
         action(listing.product)
     except APIException as exc:
-        EbayListing.objects.filter(pk=listing.pk).update(sync_error=_error_text(exc))
+        _record_error(listing, exc)
         return False
     return True
+
+
+def _push_or_record(listing):
+    """Transfer the listing; on failure keep eBay's reason on the listing, then re-raise it."""
+    try:
+        return _push(listing)
+    except APIException as exc:
+        _record_error(listing, exc)  # the row keeps showing why it is not online
+        raise
+
+
+def _record_error(listing, exc):
+    """Store an API exception's text as the listing's sync error."""
+    EbayListing.objects.filter(pk=listing.pk).update(sync_error=_error_text(exc))
 
 
 def _error_text(exc):

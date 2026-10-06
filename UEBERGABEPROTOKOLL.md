@@ -177,6 +177,27 @@ uncommittet.
   `eBay Sandbox (direkt)` und `EricKun-Ya API (Django)` (inkl. Ordner „eBay – Inserate" und
   „eBay – Verkäufe").
 
+### Nachtrag 2026-10-06 – erster echter Sandbox-Lauf
+
+- **Echt bestätigt:** Verbinden, drei Vorlagen, Lagerort, Bild-Upload (Media API funktioniert),
+  Inventory Item, Offer, Publish, Sync (Menge, Kategorie-Wechsel), Löschen eines Artikels bei eBay.
+- **Stolperstein `.env`:** `EBAY_RUNAME` muss der von eBay erzeugte RuName sein (Developer-Portal →
+  Sandbox-Keyset → „User Tokens"), nicht der Anzeigename. Ein falscher Wert endet beim Login mit
+  `invalid_request`.
+- **Sandbox-Kasse legt keine Bestellungen an:** mehrere Käufe als Buyer zeigten „Vielen Dank",
+  eBay führt aber weder Bestellung noch verkaufte Menge. eBay meldet für den Seller-Testuser
+  `sellerRegistrationCompleted: false` und zeigt Käufern den Preis mit 19 % Aufschlag
+  (85,00 € → 101,15 €). Vermutung: unvollständige Verkäufer-Registrierung des Testusers. Beim
+  Go-Live an einem echten Inserat prüfen, dass der Preis dem eingestellten entspricht.
+- **Deshalb neu:** Befehl `python manage.py simulate_ebay_sale <SKU>` (siehe
+  `backend/ebay_app/README.md`). Verkäufe abholen, eBay-Storno und Versandmeldung sind weiterhin
+  **nie** mit einer echten eBay-Bestellung gelaufen.
+- **Daten:** Testdaten vom 26.09. wurden gelöscht. Aktuell 5 Artikel („Emils Test Spiel" nicht
+  inseriert; „Emils Test Kamera" und drei Kunstdrucke online, je Restmenge 1) und 3 simulierte
+  eBay-Bestellungen (`SIM-…`). Sicherungen: `backend/data/db-backup-2026-10-06*.sqlite3`.
+- **Offene Ideen:** mehrere Versandprofile statt einer Vorlage für alle Artikel; Spalte
+  „Preis bei eBay" im eBay-Reiter; Hilfetexte zum Ablauf im Frontend.
+
 ### Danach
 - **Echter Sandbox-Durchlauf:** verbinden → Policies → Lagerort → inserieren → als Buyer
   kaufen → Verkäufe abholen → Versand melden; dabei abgelehnte Payloads korrigieren.

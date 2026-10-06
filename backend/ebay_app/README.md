@@ -108,6 +108,27 @@ beendet das Inserat.
 `aspects` hat die Form `{"Marke": ["Nintendo"], "Farbe": ["Schwarz"]}` und wird im
 `Product.aspects` gespeichert.
 
+## Verkauf simulieren (nur Sandbox)
+
+Die Sandbox-Kasse legt oft keine Bestellung an. Damit sich der Ablauf nach einem Verkauf trotzdem
+testen lässt, gibt es einen eigenen Befehl (aus `backend/`, venv aktiv):
+
+```
+python manage.py simulate_ebay_sale <SKU>                # 1 Stück verkaufen
+python manage.py simulate_ebay_sale <SKU> --quantity 2   # mehrere Stück
+python manage.py simulate_ebay_sale --cancel <Bestell-ID> # simulierte Bestellung wie ein eBay-Storno behandeln
+```
+
+- `services/simulation.py` baut eine Bestellung im Format von eBays `getOrders` (Bestellnummer
+  `SIM-…`, Beispiel-Käufer) und gibt sie an `orders.import_payloads` – denselben Code, den der
+  echte Abruf benutzt.
+- Nach einem Teilverkauf überträgt der Befehl die Restmenge an eBay (echtes eBay senkt sie selbst);
+  bei Menge 0 beendet das Signal das Inserat.
+- Der Befehl bricht ab, wenn `EBAY_ENV` nicht `sandbox` ist, die SKU unbekannt ist oder der
+  Bestand nicht reicht.
+- Grenzen: Bei eBay entsteht keine Bestellung; „Versand melden" scheitert deshalb für simulierte
+  Bestellungen. Ob eBays echtes Format der Dokumentation entspricht, zeigt erst ein echter Verkauf.
+
 **Nicht enthalten:** Storno oder Erstattung **an** eBay senden. Eine eBay-Bestellung wird bei
 eBay storniert; der nächste Abruf übernimmt das Storno und bucht den Bestand zurück.
 
@@ -123,6 +144,7 @@ eBay storniert; der nächste Abruf übernimmt das Storno und bucht den Bestand z
 - `models.py` – `EbayAccount`, `EbayLocation`, `EbayListing`, `EbayCategoryMapping`, `EbayImage`
 - `client.py`, `crypto.py`, `exceptions.py`, `signals.py`
 - `services/` – `oauth.py`, `account.py`, `locations.py`, `taxonomy.py`, `conditions.py`,
-  `images.py`, `listings.py`, `orders.py`, `overview.py`
+  `images.py`, `listings.py`, `orders.py`, `simulation.py`, `overview.py`
+- `management/commands/simulate_ebay_sale.py` – Befehl zum Simulieren eines Verkaufs
 - `api/serializers.py`, `api/views.py`, `api/urls.py`
 - `admin.py` – Verbindung, Lagerort-Keys, Inserate, gehostete Bilder (Tokens werden nie angezeigt)
