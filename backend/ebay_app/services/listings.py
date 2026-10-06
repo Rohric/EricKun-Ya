@@ -2,6 +2,7 @@
 
 import logging
 from decimal import Decimal
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db.models import Q, Sum
@@ -25,6 +26,7 @@ INVENTORY = "/sell/inventory/v1"
 LANGUAGE = {"Content-Language": client.LOCALE}
 CURRENCY = "EUR"
 TITLE_MAX = 80  # eBay's limit for listing titles
+NOTHING_SAFE = ""  # escape every special character of a foreign article number, slashes included
 ENDING_STATES = (Product.Status.SOLD, Product.Status.ARCHIVED)
 ONLINE = EbayListing.Status.ONLINE
 LISTED_STATES = (EbayListing.Status.ONLINE, EbayListing.Status.ENDED)
@@ -32,8 +34,9 @@ NOT_READY = "eBay ist noch nicht fertig eingerichtet. Bitte zuerst die Checklist
 NOT_SELLABLE = "Nur verfügbare Artikel mit Bestand können inseriert werden."
 TITLE_TOO_LONG = f"Der Titel darf bei eBay höchstens {TITLE_MAX} Zeichen haben."
 NO_LISTING = "Dieser Artikel wurde noch nicht inseriert."
-MISSING_ASPECTS = "Pflicht-Merkmale fehlen: {names}"
 BAD_SCOPE = "Unbekannter Bereich. Erlaubt: all, listed, unlisted."
+CHANNEL = "ebay"  # key and display name of this sales channel in channel-neutral answers
+CHANNEL_LABEL = "eBay"
 NO_PREVIEW_ONLINE = "Für ein laufendes Inserat gibt es keine Gebühren-Vorschau."
 
 
@@ -52,7 +55,7 @@ def listing_products():
     )
 
 
-def active_listing_products():
+def _active_listing_products():
     """Return the products that are not sold or archived, i.e. the ones that can be listed."""
     return listing_products().exclude(status__in=ENDING_STATES)
 
@@ -63,28 +66,36 @@ def products_in_scope(scope):
         return listing_products().filter(ebay_listing__status__in=LISTED_STATES)
     if scope == "unlisted":
         not_online = Q(ebay_listing__isnull=True) | Q(ebay_listing__status=EbayListing.Status.DRAFT)
-        return active_listing_products().filter(not_online)
+        return _active_listing_products().filter(not_online)
     if scope in ("", "all"):
-        return active_listing_products()
+        return _active_listing_products()
     raise ValidationError(BAD_SCOPE)
 
 
 def channel_states():
     """Return {product id: [channel entries]} so the product page can show where an article is listed."""
-    listings = EbayListing.objects.select_related("product")
+    listings = EbayListing.objects.filter(product__isnull=False).select_related("product")
     return {str(listing.product_id): [_channel_entry(listing)] for listing in listings}
 
 
 def _channel_entry(listing):
-    """Describe a listing as one sales channel of its product."""
-    return {"channel": "ebay", "label": "eBay", "state": listing.state, "url": listing_url(listing)}
+    """Describe a listing as one sales channel of its product (the format every channel uses)."""
+    return {
+        "channel": CHANNEL,
+        "label": CHANNEL_LABEL,
+        "state": listing.state,
+        "status": listing.status,
+        "sku": listing.sku,
+        "url": listing_url(listing),
+    }
 
 
 def listing_url(listing):
     """Return the public eBay page of an online listing, or an empty string."""
     if not listing.listing_id:
         return ""
-    return f"{client.environment()['web']}/itm/{listing.listing_id}"
+    web = client.environment()["web"]
+    return f"{web}/itm/{listing.listing_id}"
 
 
 def requirements(category_id, product_id=""):
@@ -116,14 +127,14 @@ def preview(product, category, aspects, **options):
 
 def sync(product):
     """Push the product's current data to eBay and make sure its listing is online."""
-    listing = _listing_of(product)
+    listing = listing_of(product)
     _require_sellable(product)
     return _push_or_record(listing)
 
 
 def withdraw(product):
     """End the product's eBay listing; the offer stays and can be published again."""
-    listing = _listing_of(product)
+    listing = listing_of(product)
     if listing.offer_id and _published_listing_id(listing):
         call("POST", f"{INVENTORY}/offer/{listing.offer_id}/withdraw")
     listing.listing_id = ""
@@ -133,7 +144,7 @@ def withdraw(product):
 def sync_all():
     """Sync every online listing with local changes; failures are stored per listing."""
     result = {"synced": 0, "failed": 0}
-    for listing in EbayListing.objects.filter(status=ONLINE).select_related("product"):
+    for listing in EbayListing.objects.filter(status=ONLINE, product__isnull=False).select_related("product"):
         if listing.has_unsynced_changes or listing.sync_error:
             result["synced" if _try(sync, listing) else "failed"] += 1
     return result
@@ -149,7 +160,7 @@ def end_if_unsellable(product):
 def remove_item(sku):
     """Delete an inventory item on eBay, which also ends its listing and removes its offers."""
     try:
-        call("DELETE", f"{INVENTORY}/inventory_item/{sku}")
+        call("DELETE", item_path(sku))
     except APIException as exc:
         logger.warning("Could not remove %s from eBay: %s", sku, exc.detail)
 
@@ -160,14 +171,20 @@ def _prepare(product, category, aspects, options):
     """Check the product, store aspects and listing choices, and return the listing."""
     _require_sellable(product)
     _store_aspects(product, category["id"], aspects)
-    defaults = {
-        "category_id": category["id"],
-        "category_name": category["name"],
-        "shipping_profile": options.get("shipping_profile"),
-        "best_offer": bool(options.get("best_offer")),
-    }
-    listing, _ = EbayListing.objects.update_or_create(product=product, defaults=defaults)
-    listing.product = product  # reuse the loaded instance instead of querying it again
+    listing = _listing_for(product)
+    listing.category_id, listing.category_name = category["id"], category["name"]
+    listing.shipping_profile = options.get("shipping_profile")
+    listing.best_offer = bool(options.get("best_offer"))
+    listing.save()
+    return listing
+
+
+def _listing_for(product):
+    """Return the product's listing, a free one that already carries its number, or a new one."""
+    listings = EbayListing.objects.select_related("shipping_profile")
+    free = listings.filter(product=None, sku=product.sku, needs_migration=False)
+    listing = listings.filter(product=product).first() or free.first() or EbayListing(sku=product.sku)
+    listing.product = product  # also reuses the loaded instance instead of querying it again
     return listing
 
 
@@ -181,7 +198,7 @@ def _require_sellable(product):
         raise ValidationError(TITLE_TOO_LONG)
 
 
-def _listing_of(product):
+def listing_of(product):
     """Return the product's listing or raise if it was never listed."""
     listing = EbayListing.objects.select_related("shipping_profile").filter(product=product).first()
     if listing is None:
@@ -196,7 +213,8 @@ def _store_aspects(product, category_id, aspects):
     required = [aspect["name"] for aspect in taxonomy.category_aspects(category_id) if aspect["required"]]
     missing = [name for name in required if name not in merged]
     if missing:
-        raise ValidationError(MISSING_ASPECTS.format(names=", ".join(missing)))
+        names = ", ".join(missing)
+        raise ValidationError(f"Pflicht-Merkmale fehlen: {names}")
     product.aspects = merged
     product.save(update_fields=["aspects", "updated_at"])
 
@@ -210,9 +228,10 @@ def _remember_category(product, category):
 
 
 def _mark(listing, status):
-    """Store the new status together with what eBay now knows about the product."""
-    listing.status = status
-    listing.synced_quantity = listing.product.quantity
+    """Store the new status together with what eBay now holds of the product."""
+    product = listing.product
+    listing.status, listing.title = status, product.title
+    listing.synced_quantity, listing.price = product.quantity, product.sale_price
     listing.last_synced = timezone.now()
     listing.sync_error = ""
     listing.save()
@@ -224,7 +243,7 @@ def _try(action, listing):
     try:
         action(listing.product)
     except APIException as exc:
-        _record_error(listing, exc)
+        record_error(listing, exc)
         return False
     return True
 
@@ -234,11 +253,11 @@ def _push_or_record(listing):
     try:
         return _push(listing)
     except APIException as exc:
-        _record_error(listing, exc)  # the row keeps showing why it is not online
+        record_error(listing, exc)  # the row keeps showing why it is not online
         raise
 
 
-def _record_error(listing, exc):
+def record_error(listing, exc):
     """Store an API exception's text as the listing's sync error."""
     EbayListing.objects.filter(pk=listing.pk).update(sync_error=_error_text(exc))
 
@@ -262,15 +281,19 @@ def _push(listing):
 
 def _transfer(listing):
     """Create or replace the inventory item and its offer on eBay (nothing is published here)."""
-    sku = listing.product.sku
-    call("PUT", f"{INVENTORY}/inventory_item/{sku}", headers=LANGUAGE, json=_item_payload(listing))
+    call("PUT", item_path(listing.sku), headers=LANGUAGE, json=_item_payload(listing))
     _save_offer(listing)
+
+
+def item_path(sku):
+    """Return the inventory item path of an eBay article number (foreign ones may need escaping)."""
+    return f"{INVENTORY}/inventory_item/{quote(sku, safe=NOTHING_SAFE)}"
 
 
 def _save_offer(listing):
     """Create the offer or update the existing one, so a SKU never gets a second offer."""
     if not listing.offer_id:
-        listing.offer_id = _remote_offer_id(listing.product.sku)
+        listing.offer_id = (remote_offer(listing.sku) or {}).get("offerId", "")
     payload = _offer_payload(listing)
     if listing.offer_id:
         call("PUT", f"{INVENTORY}/offer/{listing.offer_id}", headers=LANGUAGE, json=payload)
@@ -279,16 +302,16 @@ def _save_offer(listing):
     listing.save(update_fields=["offer_id"])
 
 
-def _remote_offer_id(sku):
-    """Return the id of an offer eBay already has for the SKU, or "" (eBay answers 404 if none)."""
+def remote_offer(sku):
+    """Return the offer eBay already has for an article number, or None (eBay answers 404 if none)."""
     params = {"sku": sku, "marketplace_id": settings.EBAY_MARKETPLACE_ID}
     try:
         offers = call("GET", f"{INVENTORY}/offer", params=params).get("offers", [])
     except EbayApiError as exc:
         if exc.http_status == 404:
-            return ""
+            return None
         raise
-    return offers[0]["offerId"] if offers else ""
+    return offers[0] if offers else None
 
 
 def _published_listing_id(listing):
@@ -355,7 +378,7 @@ def _offer_payload(listing):
     """Build the offer body: price, quantity, category, location and policies."""
     product = listing.product
     return {
-        "sku": product.sku,
+        "sku": listing.sku,
         "marketplaceId": settings.EBAY_MARKETPLACE_ID,
         "format": "FIXED_PRICE",
         "availableQuantity": product.quantity,

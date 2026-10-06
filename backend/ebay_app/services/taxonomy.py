@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from django.core.cache import cache
+from rest_framework.exceptions import ValidationError
 
 from ebay_app import client
 from ebay_app.services.oauth import call
@@ -9,6 +10,7 @@ from ebay_app.services.oauth import call
 TAXONOMY = "/commerce/taxonomy/v1"
 CACHE_SECONDS = 24 * 60 * 60  # category rules change rarely
 LANGUAGE = {"Accept-Language": client.LOCALE}
+NO_QUERY = "Bitte einen Suchbegriff angeben (?q=)."
 
 
 def _cache_key(kind, suffix=""):
@@ -29,6 +31,9 @@ def _fetch_tree_id():
 
 def suggest_categories(query):
     """Return eBay's category suggestions (id, name, path) for a product title."""
+    query = (query or "").strip()
+    if not query:
+        raise ValidationError(NO_QUERY)
     path = f"{TAXONOMY}/category_tree/{_tree_id()}/get_category_suggestions"
     data = call("GET", path, headers=LANGUAGE, params={"q": query})
     return [_suggestion(item) for item in data.get("categorySuggestions", [])]

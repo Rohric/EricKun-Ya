@@ -11,7 +11,6 @@ from ebay_app.services.oauth import call
 UPLOAD_PATH = "/commerce/media/v1_beta/image/create_image_from_file"
 MAX_IMAGES = 24  # eBay's limit per listing
 NO_IMAGES = "eBay verlangt mindestens ein Bild. Bitte zuerst ein Bild am Artikel hochladen."
-FILE_MISSING = "Die Bilddatei „{name}“ fehlt auf der Festplatte. Bitte das Bild am Artikel neu hochladen."
 
 
 def image_urls(product):
@@ -43,6 +42,7 @@ def _upload(image):
     try:
         handle = image.image.open("rb")
     except FileNotFoundError as exc:
-        raise ValidationError(FILE_MISSING.format(name=name)) from exc
+        message = f"Die Bilddatei „{name}“ fehlt auf der Festplatte. Bitte das Bild am Artikel neu hochladen."
+        raise ValidationError(message) from exc
     with handle:
         return call("POST", UPLOAD_PATH, host="media", files={"image": (name, handle)})

@@ -106,7 +106,7 @@ function _renderFigures(status, sales) {
   const counts = status.listings;
   const figures = [
     ["Inserate online", counts.online + counts.changed], ["Geändert, nicht übertragen", counts.changed],
-    ["Mit Fehler", counts.error], ["Beendet", counts.ended],
+    ["Mit Fehler", counts.error], ["Beendet", counts.ended], ["Nicht zugeordnet", counts.unassigned],
     ["Verkäufe zu verschicken", waiting.length], ["davon Zahlung offen", unpaid],
   ];
   document.getElementById("ebay-figures").innerHTML = figures.map(([label, value]) =>

@@ -153,6 +153,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # finance_app: default tax-reserve rate (percent) used on first settings access.
 TAX_RESERVE_RATE = os.environ.get("TAX_RESERVE_RATE", "25")
 
+# products_app: prefix of the internal article numbers (EK-000123). Existing numbers never change.
+SKU_PREFIX = os.environ.get("SKU_PREFIX", "EK")
+
 # eBay API (see ebay_app). Secrets live in .env only.
 EBAY_ENV = os.environ.get("EBAY_ENV", "sandbox")
 EBAY_CLIENT_ID = os.environ.get("EBAY_CLIENT_ID", "")

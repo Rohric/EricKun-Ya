@@ -11,6 +11,8 @@ class Order(models.Model):
     """Track a single sale, its buyer/shipping details and its fulfillment lifecycle."""
 
     class Fulfillment(models.TextChoices):
+        """List the steps of an order from open to delivered, returned or cancelled."""
+
         OPEN = "open", "Offen"
         PACKED = "packed", "Verpackt"
         SHIPPED = "shipped", "Verschickt"
@@ -19,6 +21,8 @@ class Order(models.Model):
         CANCELLED = "cancelled", "Storniert"
 
     class Payment(models.TextChoices):
+        """Tell whether the buyer has paid."""
+
         PAID = "paid", "Bezahlt"
         PENDING = "pending", "Zahlung offen"
 
@@ -91,10 +95,14 @@ class Cancellation(models.Model):
     """Record why and how an order was cancelled."""
 
     class Source(models.TextChoices):
+        """Tell who cancelled the order: the seller by hand, or the marketplace."""
+
         MANUAL = "manual", "Manuell"
         EBAY = "ebay", "eBay"
 
     class ItemAction(models.TextChoices):
+        """List what can happen to the products of a cancelled order."""
+
         AVAILABLE = "available", "Wieder verfügbar"
         ARCHIVE = "archive", "Ins Archiv"
         DELETE = "delete", "Artikel gelöscht"

@@ -5,7 +5,7 @@ from rest_framework.exceptions import APIException
 
 
 class EbayApiError(APIException):
-    """eBay rejected a request or could not be reached."""
+    """Signal that eBay rejected a request or could not be reached."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
     default_detail = "eBay hat die Anfrage abgelehnt."
@@ -18,7 +18,7 @@ class EbayApiError(APIException):
 
 
 class EbayNotConnected(APIException):
-    """No valid eBay connection exists (never connected or refresh token expired)."""
+    """Signal that no valid eBay connection exists (never connected or refresh token expired)."""
 
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Nicht mit eBay verbunden. Bitte im eBay-Reiter verbinden."
@@ -26,7 +26,7 @@ class EbayNotConnected(APIException):
 
 
 class EbayNotConfigured(APIException):
-    """Required eBay settings are missing in the .env."""
+    """Signal that required eBay settings are missing in the .env."""
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "eBay ist noch nicht eingerichtet (Werte in der .env fehlen)."

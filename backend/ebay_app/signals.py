@@ -19,7 +19,8 @@ def end_listing_of_unsellable_product(sender, instance, **kwargs):
 @receiver(pre_delete, sender=Product)
 def remove_deleted_product_from_ebay(sender, instance, **kwargs):
     """Remove the inventory item on eBay when a listed product is deleted."""
-    if not EbayListing.objects.filter(product=instance).exists():
+    listing = EbayListing.objects.filter(product=instance).exclude(sku="").first()
+    if listing is None:
         return
-    sku = instance.sku
+    sku = listing.sku  # the number eBay knows, which may differ from our article number
     transaction.on_commit(lambda: listings.remove_item(sku))

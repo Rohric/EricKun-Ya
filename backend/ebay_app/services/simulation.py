@@ -19,20 +19,17 @@ BUYERS = [
     {"username": "testuser_buyer-jonas", "name": "Jonas Probe", "street": "Am Markt 3", "zip": "50667", "city": "Köln"},
 ]
 NOT_SANDBOX = "Verkäufe dürfen nur in der Sandbox simuliert werden (EBAY_ENV ist nicht „sandbox“)."
-UNKNOWN_SKU = "Es gibt keinen Artikel mit der Artikelnummer {sku}."
-NOT_ENOUGH = "Von „{title}“ sind nur {available} Stück verfügbar."
-NOT_SIMULATED = "Bestellung {pk} ist keine simulierte eBay-Bestellung."
 
 
 class SimulationError(Exception):
-    """A simulated sale, payment or cancellation cannot be carried out."""
+    """Signal that a simulated sale, payment or cancellation cannot be carried out."""
 
 
 def simulate_sale(sku, quantity=1, paid=True):
     """Create an order as if eBay had reported a sale of the product; return the order."""
     _require_sandbox()
     product = _product_with_stock(sku, quantity)
-    payload = sale_payload(product, quantity, paid)
+    payload = _sale_payload(product, quantity, paid)
     orders.import_payloads([payload])
     _push_remaining_stock(product)
     return Order.objects.get(ebay_order_id=payload["orderId"])
@@ -53,13 +50,13 @@ def _report_change(order_pk, change):
     _require_sandbox()
     order = Order.objects.filter(pk=order_pk, ebay_order_id__startswith=SIMULATED_PREFIX).first()
     if order is None:
-        raise SimulationError(NOT_SIMULATED.format(pk=order_pk))
+        raise SimulationError(f"Bestellung {order_pk} ist keine simulierte eBay-Bestellung.")
     orders.import_payloads([{"orderId": order.ebay_order_id, **change}])
     order.refresh_from_db()
     return order
 
 
-def sale_payload(product, quantity, paid=True):
+def _sale_payload(product, quantity, paid=True):
     """Build an order in the shape of eBay's getOrders response for one product."""
     buyer = random.choice(BUYERS)
     return {
@@ -81,10 +78,11 @@ def _ship_to(buyer):
 
 
 def _line_item(product, quantity):
-    """Return one line item; like eBay, the cost covers the whole line."""
+    """Return one line item; like eBay, it names the listing's number and the cost of the whole line."""
+    listing = EbayListing.objects.filter(product=product).exclude(sku="").first()
     return {
         "lineItemId": f"{SIMULATED_PREFIX}LI-{secrets.token_hex(4).upper()}",
-        "sku": product.sku,
+        "sku": listing.sku if listing else product.sku,
         "title": product.title,
         "quantity": quantity,
         "lineItemCost": {"value": f"{product.sale_price * quantity:.2f}", "currency": "EUR"},
@@ -101,9 +99,9 @@ def _product_with_stock(sku, quantity):
     """Return the product for a SKU, or raise if it is unknown or lacks stock."""
     product = Product.objects.filter(sku=sku).first()
     if product is None:
-        raise SimulationError(UNKNOWN_SKU.format(sku=sku))
+        raise SimulationError(f"Es gibt keinen Artikel mit der Artikelnummer {sku}.")
     if quantity < 1 or quantity > product.quantity:
-        raise SimulationError(NOT_ENOUGH.format(title=product.title, available=product.quantity))
+        raise SimulationError(f"Von „{product.title}“ sind nur {product.quantity} Stück verfügbar.")
     return product
 
 

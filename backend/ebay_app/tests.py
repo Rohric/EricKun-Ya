@@ -1,3 +1,1 @@
-from django.test import TestCase
-
-# Create your tests here.
+"""Tests for the eBay app (none yet; checks so far ran as throwaway scripts)."""

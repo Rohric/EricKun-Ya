@@ -1,3 +1,5 @@
+"""App configuration of the finance app."""
+
 from django.apps import AppConfig
 
 

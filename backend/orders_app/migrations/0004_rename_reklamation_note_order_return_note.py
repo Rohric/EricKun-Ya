@@ -1,5 +1,7 @@
-# Hand-written so the existing notes are kept: a non-interactive makemigrations
-# would drop the old column and add a new, empty one instead of renaming it.
+"""Rename the return note field; hand-written so the existing notes are kept.
+
+A non-interactive makemigrations would drop the old column and add a new, empty one.
+"""
 
 from django.db import migrations
 

@@ -43,18 +43,24 @@ def _report_items(start, end, category, channel):
 
 def _row(item, rate):
     """Describe one sold position with its labels and amounts."""
-    product = item.product
     channel = "ebay" if item.order.ebay_order_id else "manual"
     return {
         "date": item.order.sold_at,
         "order": item.order_id,
+        "channel": channel,
+        "channel_label": CHANNEL_LABELS[channel],
+        **_product_labels(item.product),
+        **_amounts(item, item.product, channel, rate),
+    }
+
+
+def _product_labels(product):
+    """Return the columns that describe the sold product (placeholders if it was deleted)."""
+    return {
         "title": product.title if product else MISSING_PRODUCT,
         "sku": product.sku if product else "",
         "category": product.category_path if product else "",
         "category_group": _category_group(product),
-        "channel": channel,
-        "channel_label": CHANNEL_LABELS[channel],
-        **_amounts(item, product, channel, rate),
     }
 
 

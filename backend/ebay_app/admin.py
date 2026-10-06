@@ -30,10 +30,10 @@ class EbayLocationAdmin(admin.ModelAdmin):
 
 @admin.register(EbayListing)
 class EbayListingAdmin(admin.ModelAdmin):
-    """Show each product's offer, listing id and sync state."""
+    """Show each listing with its eBay number, its article (if assigned) and its sync state."""
 
-    list_display = ("product", "status", "listing_id", "category_name", "last_synced", "sync_error")
-    list_filter = ("status",)
+    list_display = ("sku", "product", "status", "listing_id", "title", "last_synced", "sync_error")
+    list_filter = ("status", "needs_migration", "ignored")
 
 
 @admin.register(EbayShippingProfile)

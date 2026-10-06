@@ -36,7 +36,7 @@ IS_CANCELLED = "Eine stornierte Bestellung kann nicht verschickt werden."
 NOT_PAID = "Die Zahlung ist noch offen. Bitte erst nach Zahlungseingang verschicken."
 
 
-def is_simulated(order):
+def _is_simulated(order):
     """Return True for orders created by the sandbox sale simulation (eBay does not know them)."""
     return settings.EBAY_ENV == "sandbox" and (order.ebay_order_id or "").startswith(SIMULATED_PREFIX)
 
@@ -155,17 +155,30 @@ def _shipping_fields(payload):
 
 
 def _create_item(order, line, result):
-    """Create one line item; an unknown SKU is kept without product and reported."""
-    product = Product.objects.filter(sku=line.get("sku") or "").first()
+    """Create one line item; a sale that fits no article is kept without product and reported."""
+    listing = _listing_for(line)
+    product = listing.product if listing and listing.product_id else _product_by_number(line)
     quantity = int(line.get("quantity") or 1)
     if product is None:
         result["unknown_skus"].append(line.get("sku") or line.get("title", "?"))
-    else:
-        _mirror_sold_quantity(product, quantity)
+    _mirror_sold_quantity(listing, quantity)
     OrderItem.objects.create(
         order=order, product=product, quantity=quantity,
         sold_price=_unit_price(line, quantity), ebay_line_item_id=line.get("lineItemId", ""),
     )
+
+
+def _listing_for(line):
+    """Find the listing of a sold line by the number eBay knows, else by the eBay item id."""
+    sku, item_id = line.get("sku"), line.get("legacyItemId")
+    listings = EbayListing.objects.select_related("product")
+    found = listings.filter(sku=sku).first() if sku else None
+    return found or (listings.filter(listing_id=item_id).first() if item_id else None)
+
+
+def _product_by_number(line):
+    """Return the product whose own article number equals the sold SKU, or None."""
+    return Product.objects.filter(sku=line.get("sku") or "").first()
 
 
 def _unit_price(line, quantity):
@@ -174,9 +187,8 @@ def _unit_price(line, quantity):
     return (total / quantity).quantize(Decimal("0.01"))
 
 
-def _mirror_sold_quantity(product, quantity):
+def _mirror_sold_quantity(listing, quantity):
     """Lower the listing's synced quantity, because eBay already reduced its own stock."""
-    listing = EbayListing.objects.filter(product=product).first()
     if listing is None:
         return
     listing.synced_quantity = max(listing.synced_quantity - quantity, 0)
@@ -188,7 +200,7 @@ def _mirror_sold_quantity(product, quantity):
 def report_shipment(order, carrier, tracking_number):
     """Report the shipment of an eBay order to eBay and mark it shipped locally."""
     _require_shippable(order)
-    if not is_simulated(order):  # eBay does not know simulated orders; they are only marked locally
+    if not _is_simulated(order):  # eBay does not know simulated orders; they are only marked locally
         payload = _shipment_payload(order, carrier, tracking_number)
         call("POST", f"{ORDERS}/{order.ebay_order_id}/shipping_fulfillment", json=payload)
     order.fulfillment_status = Order.Fulfillment.SHIPPED

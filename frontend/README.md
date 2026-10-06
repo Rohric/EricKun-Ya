@@ -1,171 +1,168 @@
 # frontend
 
-Übergangs-Frontend in Vanilla HTML/CSS/JS für das EricKun-Ya Verkaufstool. Es bedient die
-DRF-API des Backends und wird später in Angular neu gebaut – deshalb bewusst schlank und
-ohne Framework.
+## Kurzbeschreibung
 
-## Überblick
+Die Bedienoberfläche: HTML, CSS und JavaScript ohne Framework. Sie spricht ausschließlich mit der
+API des Backends und führt die Daten der Apps zusammen.
 
-- Sieben Seiten: Login, Dashboard, Artikel, Bestellungen, Lager, Finanzen, eBay
-- Der Header zeigt nur die drei Bereiche **Dashboard, Artikel, eBay**. Darunter steht eine
-  **zweite Navigationszeile** mit den Ansichten des Bereichs:
-  - Dashboard: Übersicht · Finanzen
-  - Artikel: Artikel · Bestellungen · Lager · eBay-Inserate
-  - eBay: Übersicht · Inserate · Neu inserieren · Vorlagen · Verkäufe · Auswertung
-- Die Kacheln auf dem Dashboard führen zusätzlich als Abkürzung in die Bereiche
-- Artikel und Finanzen haben eigene Reiter innerhalb der Seite; eBay und Finanzen merken sich
-  die Ansicht in der Adresse (`#…`), sie bleibt beim Neuladen erhalten
-- Alle Daten kommen über `/api/…` vom Django-Backend (same-origin, kein CORS nötig)
+**Abgrenzung:** Übergangslösung – das Frontend wird später in Angular neu gebaut. Deshalb bewusst
+schlank, nur für Laptop-Bildschirme und ohne Anpassung an kleine Displays. Fachlogik liegt im
+Backend; hier wird angezeigt, eingegeben und zusammengeführt.
 
-## Starten
+## Aufgaben
 
-Das Backend liefert das Frontend im DEBUG-Betrieb mit aus – ein Befehl reicht (aus `backend/`,
-venv aktiviert):
+- Anmelden, registrieren, abmelden
+- Artikel, Bestellungen, Lager und Finanzen bedienen
+- eBay einrichten, inserieren, Inserate und Verkäufe verwalten
+- Inserate von Portalen den Artikeln zuordnen
+- Daten mehrerer Apps zusammenführen (z. B. Artikel + Kanäle + Verkäufe in einer Tabelle)
 
-```
+## Models
+
+Keine. Das Frontend speichert nur das Token-Paar der Anmeldung im `localStorage`.
+
+## Logik
+
+**Navigation** – Der Header zeigt drei Bereiche; darunter liegt eine zweite Zeile mit den
+Ansichten des Bereichs. Beides steht in `NAV_AREAS` in `js/ui.js`.
+
+| Bereich | Ansichten |
+|---|---|
+| Dashboard | Übersicht · Finanzen |
+| Artikel | Artikel · Bestellungen · Lager · Zuordnung · eBay-Inserate |
+| eBay | Übersicht · Inserate · Neu inserieren · Vorlagen · Verkäufe · Auswertung |
+
+eBay und Finanzen merken sich den Reiter in der Adresse (`#…`), er bleibt beim Neuladen erhalten.
+
+**Gemeinsame Module**
+
+| Datei | Inhalt |
+|---|---|
+| `js/config.js` | `API_BASE_URL = "/api"`, `PAGE_SIZE = 25` |
+| `js/api.js` | `apiGet`, `apiSend`, `apiDelete`, `apiUpload`; hängt den Token an und erneuert ihn bei `401` einmal automatisch |
+| `js/auth.js` | Token-Speicher, `login`, `register`, `logout`, `requireAuth` |
+| `js/ui.js` | Navigation, Reiter, Meldungen, Formatierung, Kacheln, Pager; Beschriftungen für Inserats-, Zahlungs- und Versandstatus |
+| `js/ebay-orders.js` | eBay-Verkäufe abholen, auch still beim Öffnen des Dashboards (höchstens alle 10 Minuten) |
+| `js/ship-dialog.js` | Dialog „Versand an eBay melden" |
+| `js/sales-report.js` | Verkaufstabelle mit Einkaufs- und Verkaufspreis (Finanzen und eBay) |
+
+**Anmeldung** – Login und Registrierung liefern ein Token-Paar. Jeder Aufruf schickt
+`Authorization: Bearer <access>`; bei `401` holt `api.js` über `/api/token/refresh/` einen neuen
+Token und wiederholt den Aufruf. Abmelden sperrt den Refresh-Token auf dem Server.
+
+**Portale zusammenführen** – Die Artikelliste lädt die Kanäle getrennt (`/api/ebay/listing-states/`),
+die Seite „Zuordnung" lädt die offenen Inserate je Portal. Die Liste der Portale steht an genau
+einer Stelle: `CHANNELS` in `js/channels.js`. Ein weiteres Portal ist dort ein weiterer Eintrag.
+
+## API-Übersicht
+
+Welche Seite welche Endpoints verwendet (alle unter `/api/`):
+
+| Seite | Endpoints |
+|---|---|
+| `index.html` | `login/`, `registration/` |
+| `dashboard.html` | `dashboard/summary/`, `finance/reports/profit-loss/`, `goals/`, `ebay/status/`, `ebay/orders/import/` |
+| `products.html` | `products/`, `products/counts/`, `categories/`, `products/<id>/images/`, `product-images/<id>/`, `orders/product-sales/`, `ebay/listing-states/` |
+| `orders.html` | `orders/`, `orders/<id>/cancel/`, `products/`, `ebay/status/`, `ebay/orders/import/`, `ebay/orders/<id>/ship/`, `ebay/carriers/` |
+| `warehouse.html` | `warehouses/` |
+| `channels.html` | `ebay/listings/pull/`, `ebay/unassigned/…`, `ebay/listing-states/`, `products/` |
+| `finances.html` | `finance/reports/…`, `finance/settings/`, `goals/`, `categories/` |
+| `ebay.html` | alle Endpoints unter `ebay/` außer `unassigned/…` und `listings/pull/`, dazu `orders/`, `warehouses/` und `finance/reports/sales/` |
+| alle Seiten | `token/refresh/` (automatisch bei abgelaufenem Token), `logout/` |
+
+## API im Detail
+
+Die Endpoints sind in den READMEs der Apps beschrieben:
+[auth_app](../backend/auth_app/README.md) · [products_app](../backend/products_app/README.md) ·
+[orders_app](../backend/orders_app/README.md) · [finance_app](../backend/finance_app/README.md) ·
+[logistics_app](../backend/logistics_app/README.md) · [ebay_app](../backend/ebay_app/README.md) ·
+[core](../backend/core/README.md)
+
+Das Frontend erwartet von jedem Fehler die Form `{"error": …}` und zeigt die erste Meldung darin
+an (`errorText` in `js/ui.js`).
+
+## Anwendung
+
+**Starten** – Das Backend liefert das Frontend im Entwicklungsbetrieb mit aus (aus `backend/`,
+venv aktiv):
+
+```bash
 python manage.py runserver
 ```
 
-Dann `http://127.0.0.1:8000/` öffnen. Nach Änderungen an JS/CSS einmal **Strg+Shift+R**
-(Browser-Cache).
+Dann `http://127.0.0.1:8000/` öffnen. Nach Änderungen an JavaScript oder CSS einmal
+**Strg+Shift+R**, damit der Browser die neuen Dateien lädt.
 
-## Aufbau
+**Die Seiten**
+
+*Login* – anmelden mit E-Mail und Passwort, Umschalter zur Registrierung.
+
+*Dashboard* – Kacheln für Bestellungen, Finanzen, Lager und eBay mit Kennzahl und Link; Umsatz,
+Gewinn und Rücklage mit Zeitraum-Umschalter; die aktiven Ziele.
+
+*Artikel* – Reiter Alle · Verfügbar · Reserviert · Verkauft · Archiv mit Anzahl, Filter nach
+Kategorie und Suche. Die Spalte **Bestand** zeigt „noch da / insgesamt" (z. B. „1 / 2") und lässt
+sich bei Artikeln mit Verkäufen aufklappen. Die Spalte **Kanäle** zeigt je Portal ein Kennzeichen
+mit Status. Steht beim Einkaufspreis „nachtragen", wurde der Artikel aus einem Inserat übernommen.
+
+*Bestellungen* – Liste mit Filtern (Herkunft, Zahlung, Status), neue Bestellung, Storno mit Wahl,
+was mit den Artikeln passiert. eBay-Bestellungen lassen sich nur über „Versand melden" auf
+„verschickt" setzen, und erst nach Zahlungseingang.
+
+*Lager* – der Lagerort, von dem verschickt wird.
+
+*Zuordnung* – Inserate, die bei einem Portal online sind, aber zu keinem Artikel gehören.
+1. **„Mit eBay abgleichen"** holt die Inserate.
+2. Je Inserat: **Verknüpfen** (Artikel in der Auswahl wählen – ein Vorschlag ist vorausgewählt und
+   will geprüft werden), **Neuer Artikel** oder **Ignorieren**.
+3. **„Alle als neue Artikel anlegen"** ist der Weg bei leerer Datenbank.
+4. „Ignorierte anzeigen" blendet ausgeblendete Inserate wieder ein.
+
+Vor dem Umwandeln eines Inserats, das nicht über das Programm angelegt wurde, fragt die Seite
+nach: Es lässt sich danach nur noch über das Programm ändern. Lehnt eBay ab, steht der Grund in
+der Spalte „Hinweis".
+
+*Finanzen* – Reiter Übersicht (Steuerrechnung, Monatsumsatz), Verkäufe (je Position mit Gebühr,
+Gewinn, Marge), Aufteilung (nach Kanal und Kategorie), Ziele, Einstellungen.
+
+*eBay* – oben die Umgebung (Sandbox oder Production).
+- **Übersicht:** Kennzahlen, Checkliste, Verbindung
+- **Inserate:** laufende und beendete Inserate; Synchronisieren, Bearbeiten, Beenden, **Lösen**
+  (trennt Artikel und Inserat, ohne bei eBay etwas zu ändern), Ansehen. Trägt ein Inserat bei eBay
+  eine andere Nummer als der Artikel, steht sie unter der Artikelnummer. Ein Hinweis führt zur
+  Zuordnung, solange Inserate keinem Artikel gehören
+- **Neu inserieren:** verkaufbare Artikel ohne Inserat; Dialog mit Kategorie-Vorschlägen,
+  Merkmalen, Versandprofil, Preisvorschlag und Gebühren-Vorschau
+- **Vorlagen:** Versandprofile, Rückgabe und Zahlung, Lagerort übertragen
+- **Verkäufe:** eBay-Bestellungen, abholen, Versand melden
+- **Auswertung:** die Verkaufstabelle der Finanzen, auf eBay gefiltert
+
+Inserieren geht erst, wenn die Checkliste vollständig ist; gesperrte Reiter zeigen einen Hinweis.
+
+## Verbindungen
+
+- Spricht nur mit dem Backend unter `/api/…` (gleicher Server, kein CORS nötig).
+- Kennt keine Datenbank und keine eBay-Zugangsdaten; die Verbindung zu eBay hält das Backend.
+
+## Dateien
 
 ```
 frontend/
-  index.html       Login + Registrierung
-  dashboard.html   Bereichs-Kacheln, Kennzahlen, Ziele
-  products.html    Artikel mit Status-Reitern, Filtern, Kanälen, Kategorien, Bildern
-  orders.html      Bestellungen, Zahlung, Storno, eBay-Verkäufe, Versand melden
-  warehouse.html   Lagerort (Versandadresse)
-  finances.html    Übersicht, Verkäufe, Aufteilung, Ziele, Einstellungen
-  ebay.html        Übersicht, Inserate, Neu inserieren, Vorlagen, Verkäufe, Auswertung
-  css/style.css    gesamtes Styling
-  js/config.js     API-Pfad, Seitengröße
-  js/api.js        fetch-Wrapper mit JWT + Token-Refresh
-  js/auth.js       Login, Registrierung, Logout, Seitenschutz
-  js/ui.js         gemeinsame Helfer (Navigation, Reiter, Formatierung, Kacheln, Pager, …)
-  js/ship-dialog.js    Dialog „Versand an eBay melden" (Bestellungen + eBay)
-  js/sales-report.js   Verkaufstabelle mit EK/VK (Finanzen + eBay)
-  js/ebay-orders.js    eBay-Verkäufe abholen (Dashboard, Bestellungen, eBay)
-  js/ebay.js           eBay-Reiter: Gerüst, Übersicht, Auswertung
-  js/ebay-listings.js  eBay-Reiter: Inserate, Neu inserieren, Inserieren-Dialog
-  js/ebay-templates.js eBay-Reiter: Versandprofile, Rückgabe/Zahlung, Lagerort
-  js/ebay-sales.js     eBay-Reiter: Verkäufe
-  js/<seite>.js    Logik je Seite
+  index.html       Login und Registrierung
+  dashboard.html   Kacheln, Kennzahlen, Ziele
+  products.html    Artikel, Kategorien, Bilder
+  orders.html      Bestellungen, Storno, Versand melden
+  warehouse.html   Lagerort
+  channels.html    Zuordnung von Inseraten zu Artikeln
+  finances.html    Auswertungen, Ziele, Einstellungen
+  ebay.html        alle eBay-Reiter
+  css/style.css    das gesamte Styling
+  js/config.js  api.js  auth.js  ui.js         gemeinsame Grundlagen
+  js/ship-dialog.js  sales-report.js  ebay-orders.js   von mehreren Seiten genutzt
+  js/ebay.js             eBay: Gerüst, Übersicht, Auswertung
+  js/ebay-listings.js    eBay: Inserate, Neu inserieren, Inserieren-Dialog
+  js/ebay-templates.js   eBay: Versandprofile, Rückgabe und Zahlung, Lagerort
+  js/ebay-sales.js       eBay: Verkäufe
+  js/channels.js         Zuordnung; hier steht die Liste der Portale
+  js/<seite>.js          die Logik je Seite
 ```
-
-## Seiten & Funktionen
-
-### Login (`index.html`, `login.js`)
-- Anmelden mit E-Mail + Passwort
-- Umschalter zur Registrierung (Name, E-Mail, Passwort ×2)
-- Wer schon angemeldet ist, landet direkt im Dashboard
-
-### Dashboard (`dashboard.html`, `dashboard.js`)
-- **Bereichs-Kacheln** mit Kennzahl und Link: Bestellungen (zu verschicken, Zahlung offen,
-  Reklamationen), Finanzen (Umsatz und Gewinn des Monats), Lager (Artikel, Stück), eBay
-  (online, geändert, Fehler)
-- Kacheln: Umsatz, Netto-Gewinn, Rücklage, Brutto-Gewinn mit Zeitraum-Umschalter
-- Kurzblick auf die **aktiven** Ziele
-- Holt beim Öffnen neue eBay-Verkäufe ab (höchstens alle 10 Minuten) und meldet, was kam
-
-### Artikel (`products.html`, `products.js`)
-- Reiter **Alle · Verfügbar · Reserviert · Verkauft · Archiv**, jeweils mit Anzahl
-- Filter: Kategorie (inkl. Unterkategorien) und Suche nach Titel oder Artikelnummer
-- Tabelle mit Bild, SKU, Titel, Kategorie, Status, **Kanäle**, Zustand, Preisen, Gewinn,
-  **Bestand**; seitenweise (25 pro Seite)
-- Spalte „Bestand": `noch da / insgesamt`, z. B. „1 / 2", mit Balken für den verkauften Anteil.
-  Hat ein Artikel Verkäufe, lässt sich die Zeile aufklappen: eine Kachel „im Lager" (Status,
-  Inserat) und je Verkauf eine Kachel mit Datum, Preis, Kanal, Käufer, Bestell- und
-  Zahlungsstatus. Die Daten kommen aus `/api/orders/product-sales/`
-- Spalte „Kanäle": je Verkaufskanal ein Badge (heute „eBay · Online / Geändert / Beendet /
-  Entwurf / Fehler"), bei laufendem Inserat als Link. Die Daten kommen getrennt aus
-  `/api/ebay/listing-states/`; ein weiterer Kanal wäre nur ein weiterer Eintrag
-- Anlegen / Bearbeiten, Bilder hochladen und löschen; verkaufte und archivierte Artikel
-  reaktivieren oder löschen
-- **Kategorien verwalten:** Ober- und Unterkategorien anlegen und löschen
-
-### Bestellungen (`orders.html`, `orders.js`, `ship-dialog.js`)
-- Tabelle mit Datum, Status, **Zahlung**, Kunde, Ort, Umsatz, Gewinn, Positionen; neueste zuerst
-- Filter: Herkunft (eBay / manuell), Zahlung (bezahlt / offen), Status
-- Neue Bestellung: Datum, Status, Zahlung, Käufer- und Lieferdaten, Tracking; Positionen mit
-  Artikelauswahl (zeigt den verfügbaren Bestand, Verkaufspreis wird vorbefüllt); der Bestand
-  wird beim Speichern abgebucht
-- Bearbeiten: Status, Kunden- und Versanddaten; Positionen sind nach dem Anlegen fest
-- **eBay-Bestellungen:** „eBay"-Kennzeichen; Zahlung und Tracking kommen von eBay. „Verschickt"
-  lässt sich nicht von Hand setzen – die Auswahl öffnet „Versand melden". „Versand melden" ist
-  gesperrt, solange die Zahlung offen ist. „Zugestellt" geht erst nach dem gemeldeten Versand
-- **Storno** mit Auswahl (verfügbar / Archiv / löschen) und optionalem Grund; Grund und
-  Herkunft stehen danach unter dem Status. Ein Storno einer eBay-Bestellung wird **nicht** an
-  eBay gemeldet – der Dialog weist darauf hin
-- **eBay-Verkäufe abholen:** Button oben, zusätzlich automatisch beim Öffnen
-
-### Lager (`warehouse.html`, `warehouse.js`)
-- Lagerort anlegen bzw. bearbeiten: Bezeichnung, Straße, PLZ, Ort, Ländercode
-- Das ist die Adresse, von der verschickt wird; eBay bekommt sie als Artikelstandort
-- Nach einer Adressänderung im eBay-Reiter unter „Vorlagen" erneut übertragen
-
-### Finanzen (`finances.html`, `finances.js`, `sales-report.js`)
-Zeitfilter (Heute / Monat / Jahr / Gesamt oder von–bis) gilt für die ersten drei Reiter.
-- **Übersicht:** Steuerrechnung (Brutto − Rücklage = Netto; geschätzte eBay-Gebühren sind im
-  Brutto bereits abgezogen), Kacheln Umsatz, Einkauf, geschätzte Gebühren, Zahlung offen;
-  Monatsumsatz mit Jahr-Umschalter
-- **Verkäufe:** je verkaufter Position EK, VK, Umsatz, geschätzte Gebühr, Gewinn, Marge;
-  Filter Kategorie und Kanal; Summenzeile
-- **Aufteilung:** Umsatz, Gebühr, Gewinn und Marge nach Kanal und nach Kategorie, mit Balken
-  für den Umsatzanteil
-- **Ziele:** anlegen, bearbeiten, deaktivieren/aktivieren, löschen
-- **Einstellungen:** Rücklagensatz und geschätzter eBay-Gebührensatz
-
-Stornierte Bestellungen und Bestellungen mit offener Zahlung zählen nirgends als Umsatz.
-
-### eBay (`ebay.html`, `ebay*.js`)
-Badge oben zeigt die Umgebung (Sandbox / Production).
-- **Übersicht:** Kennzahlen (online, geändert, Fehler, beendet, zu verschicken, Zahlung offen),
-  Checkliste, Verbindung („Mit eBay verbinden" öffnet den eBay-Login; danach die Adresse aus der
-  Browserleiste einfügen und „Verbindung abschließen")
-- **Inserate:** laufende und beendete Inserate mit Preis, **Preis bei eBay** (markiert, wenn er
-  abweicht), Menge, verkaufter Stückzahl, Status samt eBays Fehlermeldung, eBay-Kategorie und
-  Versandprofil. Aktionen: Synchronisieren, Bearbeiten, Beenden, Wieder einstellen, Ansehen;
-  oben „Alle synchronisieren" und „Von eBay aktualisieren"
-- **Neu inserieren:** verkaufbare Artikel ohne Inserat mit Hinweis, was fehlt (Bild, Titellänge).
-  Dialog: eBay-Kategorievorschläge zum Titel (gemerkte Kategorie oben, vorausgewählt nur wenn
-  eBay sie ebenfalls vorschlägt), Pflicht-Merkmale mit Vorschlagsliste, empfohlene aufklappbar,
-  Versandprofil, „Preisvorschlag erlauben", „Gebühren prüfen", „Jetzt inserieren"
-- **Vorlagen:** Versandprofile anlegen, ändern, als Standard setzen, löschen; Rückgabefrist und
-  Kostenträger; Lagerort übertragen
-- **Verkäufe:** eBay-Bestellungen mit Zahlung und Status, „eBay-Verkäufe abholen",
-  „Versand melden"
-- **Auswertung:** die Verkaufstabelle aus den Finanzen, fest auf eBay gefiltert
-
-Inserieren ist erst möglich, wenn die Checkliste vollständig ist; gesperrte Reiter zeigen
-einen Hinweis.
-
-## Gemeinsame Module
-
-- **`config.js`** – `API_BASE_URL = "/api"`, `PAGE_SIZE = 25`
-- **`api.js`** – `apiGet`, `apiSend`, `apiDelete`, `apiUpload` (multipart); hängt den
-  Bearer-Token an, erneuert ihn bei 401 einmal automatisch
-- **`auth.js`** – Token-Speicher, `login`, `register`, `logout`, `requireAuth`
-- **`ui.js`** – `renderNav` (Header + zweite Zeile, Bereiche in `NAV_AREAS`), `renderTabs`,
-  `showMessage`, `errorText`,
-  `escapeHtml`, `formatEuro`, `formatPercent`, `inputValue`, `markActive`, `renderTiles`,
-  `renderGoalCard`, `renderPager`, `periodRange`, `isoDate`; Beschriftungen
-  `LISTING_STATE_LABELS`, `PAYMENT_LABELS`, `FULFILLMENT_LABELS`
-- **`ebay-orders.js`** – `importEbayOrders`, `autoImportEbayOrders` (still, nur wenn verbunden
-  und der letzte Abruf älter als 10 Minuten ist), `ebayImportChanged`, `ebayImportText`
-- **`ship-dialog.js`** – `openShipDialog(order, onDone)`; baut seinen Dialog selbst
-- **`sales-report.js`** – `renderSalesReport(containerId, filters)`
-
-## Authentifizierung
-
-Login und Registrierung liefern ein JWT-Paar, das im `localStorage` liegt. Jeder Request
-schickt `Authorization: Bearer <access>`; bei 401 wird über `/api/token/refresh/` erneuert
-und die Anfrage wiederholt. Logout setzt den Refresh-Token serverseitig auf die Blacklist.
-
-## Grenzen
-
-- **Nur Laptop-Ansicht** – bewusst ohne Media Queries
-- JWT im `localStorage` ist für das Tool ausreichend; beim Angular-Umbau härten
-- Übergangslösung: Struktur und API bleiben, das UI wird in Angular neu gebaut

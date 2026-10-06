@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environment
 venv/
@@ -9,8 +12,10 @@ venv/
 
 # Django
 *.sqlite3
-db.sqlite3
+*.sqlite3-journal
+db-backup-*
 staticfiles/
+*.log
 
 # User data (SQLite DB + uploaded media) — never commit
 data/
@@ -19,6 +24,15 @@ media/
 # Environment / secrets
 .env
 
-# IDE
+# Local working notes and assistant settings — not part of the published project
+UEBERGABEPROTOKOLL.md
+.claude/
+
+# IDE and operating system
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+
+# Frontend tooling (for the later Angular rebuild)
+node_modules/

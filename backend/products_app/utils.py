@@ -1,23 +1,31 @@
-"""Helpers for the products app: SKU generation, list filters and status counts."""
+"""Helpers for the products app: internal article numbers, list filters and status counts."""
 
-import uuid
-
+from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, Q
 from rest_framework.exceptions import ValidationError
 
-from products_app.models import Product
+from products_app.models import Product, SkuSequence
 
-SKU_PREFIX = "ART"
+SKU_DIGITS = 6  # EK-000123
 BAD_STATUS = "Unbekannter Status. Erlaubt: available, reserved, sold, archived."
 BAD_CATEGORY = "Die Kategorie muss eine Zahl sein."
 
 
+@transaction.atomic
 def generate_sku():
-    """Return a unique SKU built from a short random hex suffix."""
-    while True:
-        candidate = f"{SKU_PREFIX}-{uuid.uuid4().hex[:8].upper()}"
-        if not Product.objects.filter(sku=candidate).exists():
-            return candidate
+    """Return the next internal article number (e.g. EK-000123); none is ever handed out twice."""
+    sequence, _ = SkuSequence.objects.select_for_update().get_or_create(pk=1)
+    sequence.last_number += 1
+    while Product.objects.filter(sku=_format_sku(sequence.last_number)).exists():
+        sequence.last_number += 1  # skip a number that came in from outside, e.g. with an old listing
+    sequence.save()
+    return _format_sku(sequence.last_number)
+
+
+def _format_sku(number):
+    """Return the article number for a counter value: prefix, dash, zero-padded number."""
+    return f"{settings.SKU_PREFIX}-{number:0{SKU_DIGITS}d}"
 
 
 def filter_products(queryset, params):

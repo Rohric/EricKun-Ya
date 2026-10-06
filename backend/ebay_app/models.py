@@ -1,6 +1,9 @@
 """eBay-side state: account, policy ids, inventory locations, listings, category memory, hosted images."""
 
+from decimal import Decimal
+
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from logistics_app.models import Warehouse
@@ -8,7 +11,7 @@ from products_app.models import Category, Product, ProductImage
 
 
 class EbayAccount(models.Model):
-    """Singleton with the encrypted OAuth tokens and the return/payment policy ids of the seller."""
+    """Store the seller's encrypted OAuth tokens and the return/payment policy ids (single row)."""
 
     access_token = models.TextField(blank=True)  # Fernet-encrypted, see ebay_app.crypto
     access_expires_at = models.DateTimeField(null=True, blank=True)
@@ -53,7 +56,7 @@ class EbayAccount(models.Model):
 
 
 class EbayLocation(models.Model):
-    """eBay inventory location (merchantLocationKey) that mirrors a warehouse."""
+    """Remember the eBay inventory location (merchantLocationKey) that mirrors a warehouse."""
 
     warehouse = models.OneToOneField(Warehouse, on_delete=models.CASCADE, related_name="ebay_location")
     merchant_location_key = models.CharField(max_length=36, unique=True)
@@ -70,7 +73,7 @@ class EbayLocation(models.Model):
 
 
 class EbayShippingProfile(models.Model):
-    """One shipping (fulfillment) policy on eBay that can be chosen per listing."""
+    """Store one shipping (fulfillment) policy on eBay that can be chosen per listing."""
 
     name = models.CharField(max_length=60, unique=True)
     shipping_service = models.CharField(max_length=100, blank=True)
@@ -88,12 +91,15 @@ class EbayShippingProfile(models.Model):
 
     def save(self, *args, **kwargs):
         """Persist the profile and keep exactly one default."""
-        others = EbayShippingProfile.objects.exclude(pk=self.pk)
-        if not others.filter(is_default=True).exists():
+        if not self._other_defaults().exists():
             self.is_default = True  # the first or only profile is always the default
         super().save(*args, **kwargs)
         if self.is_default:
-            others.filter(is_default=True).update(is_default=False)
+            self._other_defaults().update(is_default=False)
+
+    def _other_defaults(self):
+        """Return the other default profiles (asked anew each time: a new profile has no pk before saving)."""
+        return EbayShippingProfile.objects.exclude(pk=self.pk).filter(is_default=True)
 
     @classmethod
     def default(cls):
@@ -102,15 +108,23 @@ class EbayShippingProfile(models.Model):
 
 
 class EbayListing(models.Model):
-    """eBay offer and listing of one product, plus what was last transferred."""
+    """Mirror one listing on eBay; it exists on its own and belongs to at most one product."""
 
     class Status(models.TextChoices):
+        """List the stages of a listing on eBay."""
+
         DRAFT = "draft", "Entwurf"
         ONLINE = "online", "Online"
         ENDED = "ended", "Beendet"
 
-    product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="ebay_listing")
-    category_id = models.CharField(max_length=16)
+    # NULL means "not assigned yet": the listing was found on eBay and waits in the assignment view.
+    product = models.OneToOneField(
+        Product, on_delete=models.CASCADE, null=True, blank=True, related_name="ebay_listing"
+    )
+    # The article number eBay knows the listing by. Ours for listings we create or convert,
+    # a foreign one where eBay does not let an existing entry be renamed.
+    sku = models.CharField(max_length=64, blank=True, db_index=True)
+    category_id = models.CharField(max_length=16, blank=True)
     category_name = models.CharField(max_length=255, blank=True)
     # NULL means "use the default profile".
     shipping_profile = models.ForeignKey(
@@ -120,34 +134,58 @@ class EbayListing(models.Model):
     offer_id = models.CharField(max_length=32, blank=True)
     listing_id = models.CharField(max_length=32, blank=True)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.DRAFT)
+    # What eBay currently holds: written after every transfer and by the pull from eBay.
+    title = models.CharField(max_length=255, blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     synced_quantity = models.PositiveIntegerField(default=0)
+    image_url = models.URLField(max_length=500, blank=True)
     last_synced = models.DateTimeField(null=True, blank=True)
     sync_error = models.TextField(blank=True)
+    # Flags of listings found on eBay.
+    needs_migration = models.BooleanField(default=False)  # created outside the Inventory API
+    supported = models.BooleanField(default=True)  # False for auctions and listings with variations
+    ignored = models.BooleanField(default=False)  # hidden from the assignment view
     # Facts read back from eBay: what buyers see and how many units eBay counts as sold.
     ebay_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     sold_quantity = models.PositiveIntegerField(default=0)
     facts_synced_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        constraints = [
+            # Legacy listings may share a number on eBay; everything else is unique per number.
+            models.UniqueConstraint(
+                fields=["sku"], condition=~Q(sku="") & Q(needs_migration=False), name="unique_ebay_listing_sku"
+            ),
+        ]
+
     def __str__(self):
         """Return a readable label for admin and shell."""
-        return f"{self.product.sku} ({self.get_status_display()})"
+        return f"{self.sku or self.listing_id} ({self.get_status_display()})"
 
     @property
     def has_unsynced_changes(self):
-        """Return True if the online listing no longer matches the product."""
-        if self.status != self.Status.ONLINE or self.last_synced is None:
+        """Return True if the online listing no longer matches its product (data, stock or price)."""
+        if self.product_id is None or self.status != self.Status.ONLINE or self.last_synced is None:
             return False
-        # Stock bookings skip updated_at, so the quantity is compared separately.
-        return self.product.updated_at > self.last_synced or self.product.quantity != self.synced_quantity
+        # Stock bookings skip updated_at, so stock and price are compared with what eBay holds.
+        if self.product.quantity != self.synced_quantity or self._price_differs():
+            return True
+        return self.product.updated_at > self.last_synced
+
+    def _price_differs(self):
+        """Return True if eBay holds another price than the product (unknown counts as equal)."""
+        return self.price is not None and Decimal(self.price) != Decimal(self.product.sale_price)
 
     @property
     def state(self):
-        """Return the state shown in the UI: error and changed outrank the stored status."""
+        """Return the state shown in the UI; the stored status comes last."""
+        if self.ignored:
+            return "ignored"
+        if self.product_id is None:
+            return "unassigned"
         if self.sync_error:
             return "error"
-        if self.has_unsynced_changes:
-            return "changed"
-        return self.status
+        return "changed" if self.has_unsynced_changes else self.status
 
 
 class EbayCategoryMapping(models.Model):
@@ -163,7 +201,7 @@ class EbayCategoryMapping(models.Model):
 
 
 class EbayImage(models.Model):
-    """URL of a product image hosted by eBay, so each file is uploaded only once."""
+    """Remember the URL of a product image hosted by eBay, so each file is uploaded only once."""
 
     image = models.OneToOneField(ProductImage, on_delete=models.CASCADE, related_name="ebay_image")
     eps_url = models.URLField(max_length=500)

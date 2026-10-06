@@ -1,21 +1,22 @@
 """API views for the eBay connection, the seller setup, the listings and the sales."""
 
-from rest_framework import generics
-from rest_framework.exceptions import ValidationError
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.pagination import OptionalPagePagination
-from ebay_app.models import EbayShippingProfile
+from ebay_app.models import EbayListing, EbayShippingProfile
 from ebay_app.services import (
     account,
+    assignment,
     facts,
     listings,
     locations,
     oauth,
     orders,
     overview,
+    pull,
     shipping_profiles,
     taxonomy,
 )
@@ -25,20 +26,28 @@ from products_app.models import Product
 
 from .serializers import (
     ConnectFinishSerializer,
+    IgnoreSerializer,
+    LinkSerializer,
     ListingProductSerializer,
     PolicyFormSerializer,
     PublishSerializer,
     ShipmentSerializer,
     ShippingProfileSerializer,
+    UnassignedListingSerializer,
 )
 
-NO_QUERY = "Bitte einen Suchbegriff angeben (?q=)."
 
-
-def _listing_response(pk):
+def _listing_response(pk, code=status.HTTP_200_OK):
     """Return the refreshed product row with its listing after an action."""
     product = listings.listing_products().get(pk=pk)
-    return Response(ListingProductSerializer(product).data)
+    return Response(ListingProductSerializer(product).data, status=code)
+
+
+def _validated(serializer_class, request):
+    """Validate the request body with a serializer and return the cleaned data."""
+    serializer = serializer_class(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
 def _publish_arguments(request):
@@ -198,10 +207,7 @@ class CategorySuggestionsView(APIView):
 
     def get(self, request):
         """Return eBay's category suggestions for ?q=."""
-        query = request.query_params.get("q", "").strip()
-        if not query:
-            raise ValidationError(NO_QUERY)
-        return Response(taxonomy.suggest_categories(query))
+        return Response(taxonomy.suggest_categories(request.query_params.get("q", "")))
 
 
 class CategoryRequirementsView(APIView):
@@ -304,6 +310,91 @@ class ListingRefreshView(APIView):
     def post(self, request):
         """Refresh the eBay facts and return how many listings succeeded and failed."""
         return Response(facts.refresh_all())
+
+
+class ListingUnlinkView(APIView):
+    """Detach a product from its eBay listing without touching the listing on eBay."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Unlink the listing; if it is online it returns to the assignment view."""
+        assignment.unlink(generics.get_object_or_404(Product, pk=pk))
+        return _listing_response(pk)
+
+
+# --- Assignment: listings found on eBay that belong to no article yet ---
+
+class ListingPullView(APIView):
+    """Fetch the seller's listings from eBay."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Mirror eBay's listings and return how many were found, linked and left open."""
+        return Response(pull.pull_listings())
+
+
+class UnassignedList(generics.ListAPIView):
+    """List the listings that wait for an article; ?ignored=1 shows the ignored ones instead."""
+
+    serializer_class = UnassignedListingSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OptionalPagePagination
+
+    def get_queryset(self):
+        """Return the open (or ignored) listings without article."""
+        return assignment.unassigned(self.request.query_params.get("ignored", ""))
+
+    def get_serializer_context(self):
+        """Add the free articles once, so every row can suggest a fitting one."""
+        return {**super().get_serializer_context(), "products": list(assignment.free_products())}
+
+
+class UnassignedLinkView(APIView):
+    """Link an unassigned listing to an existing article."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Link listing and article (a legacy listing is converted first) and return the article row."""
+        listing = generics.get_object_or_404(EbayListing, pk=pk)
+        product = _validated(LinkSerializer, request)["product"]
+        assignment.link(listing, product)
+        return _listing_response(product.pk)
+
+
+class UnassignedCreateProductView(APIView):
+    """Create a new article from an unassigned listing."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Create the article with a new internal number, link it and return the article row."""
+        product = assignment.create_product(generics.get_object_or_404(EbayListing, pk=pk))
+        return _listing_response(product.pk, status.HTTP_201_CREATED)
+
+
+class UnassignedCreateAllView(APIView):
+    """Create a new article for every open listing (the way to start with an empty database)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Create the articles and return how many worked and how many eBay refused."""
+        return Response(assignment.create_all())
+
+
+class UnassignedIgnoreView(APIView):
+    """Hide an unassigned listing from the assignment view, or show it again."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Set the ignore flag ({"ignored": false} shows the listing again) and return the listing."""
+        listing = generics.get_object_or_404(EbayListing, pk=pk)
+        assignment.ignore(listing, _validated(IgnoreSerializer, request)["ignored"])
+        return Response(UnassignedListingSerializer(listing).data)
 
 
 # --- Sales ---

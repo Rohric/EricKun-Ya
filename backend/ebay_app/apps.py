@@ -1,3 +1,5 @@
+"""App configuration of the eBay app."""
+
 from django.apps import AppConfig
 
 

@@ -11,6 +11,7 @@ BAD_SOURCE = "Unbekannte Herkunft. Erlaubt: ebay, manual."
 BAD_PAYMENT = "Unbekannter Zahlungsstatus. Erlaubt: paid, pending."
 BAD_STATUS = "Unbekannter Bestellstatus."
 BAD_PRODUCTS = "„products“ muss eine kommagetrennte Liste von Artikel-IDs sein."
+ALREADY_CANCELLED = "Diese Bestellung ist bereits storniert."
 
 
 def parse_product_ids(raw):
@@ -75,7 +76,7 @@ def _by_choice(queryset, field, value, allowed, message):
     return queryset.filter(**{field: value})
 
 
-def apply_stock_change(product, delta):
+def _apply_stock_change(product, delta):
     """Adjust a product's stock by delta and keep its sale status in sync."""
     if product is None:
         return
@@ -90,12 +91,14 @@ def apply_stock_change(product, delta):
 def sync_stock(order, sign):
     """Apply (sign × quantity) to the stock of every line item's product."""
     for item in order.items.select_related("product"):
-        apply_stock_change(item.product, sign * item.quantity)
+        _apply_stock_change(item.product, sign * item.quantity)
 
 
 @transaction.atomic
 def cancel_order(order, item_action, reason="", source=Cancellation.Source.MANUAL):
     """Cancel an order, restock its items, record why and apply the chosen product action."""
+    if order.fulfillment_status == order.Fulfillment.CANCELLED:
+        raise ValidationError(ALREADY_CANCELLED)  # a second run would restock the items twice
     sync_stock(order, sign=1)
     order.fulfillment_status = order.Fulfillment.CANCELLED
     order.save(update_fields=["fulfillment_status"])

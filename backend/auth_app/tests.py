@@ -1,3 +1,1 @@
-from django.test import TestCase
-
-# Create your tests here.
+"""Tests for the auth app (none yet; checks so far ran as throwaway scripts)."""

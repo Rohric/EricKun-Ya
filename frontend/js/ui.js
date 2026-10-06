@@ -4,6 +4,7 @@
 const LISTING_STATE_LABELS = {
   none: "Nicht inseriert", draft: "Entwurf", online: "Online",
   changed: "Geändert", ended: "Beendet", error: "Fehler",
+  unassigned: "Nicht zugeordnet", ignored: "Ignoriert",
 };
 const PAYMENT_LABELS = { paid: "Bezahlt", pending: "Zahlung offen" };
 const FULFILLMENT_LABELS = {
@@ -18,8 +19,8 @@ const NAV_AREAS = [
   {
     href: "products.html", label: "Artikel",
     views: [
-      ["products.html", "Artikel"], ["orders.html", "Bestellungen"],
-      ["warehouse.html", "Lager"], ["ebay.html#listings", "eBay-Inserate"],
+      ["products.html", "Artikel"], ["orders.html", "Bestellungen"], ["warehouse.html", "Lager"],
+      ["channels.html", "Zuordnung"], ["ebay.html#listings", "eBay-Inserate"],
     ],
   },
   { href: "ebay.html", label: "eBay", views: [] },

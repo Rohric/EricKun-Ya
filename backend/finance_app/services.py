@@ -21,6 +21,14 @@ _PROFIT_EXPR = ExpressionWrapper(
 )
 
 
+CENT = Decimal("0.01")
+
+
+def _money(value):
+    """Return a summed amount (None if nothing was sold) rounded to cents."""
+    return Decimal(value or 0).quantize(CENT)
+
+
 def _day_bounds(start, end):
     """Return aware datetimes [start 00:00, end+1 00:00) so the sold_at index is usable."""
     tz = timezone.get_current_timezone()
@@ -45,31 +53,30 @@ def counted_items(start, end):
 
 def revenue_for_period(start, end):
     """Return total revenue (sale prices) for the given date range."""
-    total = counted_items(start, end).aggregate(s=Sum(_REVENUE_EXPR))["s"]
-    return total or Decimal("0")
+    return _money(counted_items(start, end).aggregate(s=Sum(_REVENUE_EXPR))["s"])
 
 
 def pending_revenue_for_period(start, end):
     """Return the revenue of orders whose payment is still open (not counted as revenue yet)."""
     pending = _sold_items(start, end).filter(order__payment_status=Order.Payment.PENDING)
-    return pending.aggregate(s=Sum(_REVENUE_EXPR))["s"] or Decimal("0")
+    return _money(pending.aggregate(s=Sum(_REVENUE_EXPR))["s"])
 
 
 def estimated_fee(revenue, rate=None):
     """Return the estimated eBay fee for a revenue amount (rate in percent)."""
     rate = FinanceSettings.load().ebay_fee_rate if rate is None else rate
-    return (revenue * rate / Decimal("100")).quantize(Decimal("0.01"))
+    return (revenue * rate / Decimal("100")).quantize(CENT)
 
 
 def estimated_fees_for_period(start, end):
     """Return the estimated eBay fees on the period's eBay sales of known products."""
     ebay_items = counted_items(start, end).filter(order__ebay_order_id__isnull=False, product__isnull=False)
-    return estimated_fee(ebay_items.aggregate(s=Sum(_REVENUE_EXPR))["s"] or Decimal("0"))
+    return estimated_fee(_money(ebay_items.aggregate(s=Sum(_REVENUE_EXPR))["s"]))
 
 
 def profit_for_period(start, end):
     """Return total gross profit (sale minus purchase minus estimated eBay fees) for the range."""
-    total = counted_items(start, end).aggregate(s=Sum(_PROFIT_EXPR))["s"] or Decimal("0")
+    total = _money(counted_items(start, end).aggregate(s=Sum(_PROFIT_EXPR))["s"])
     return total - estimated_fees_for_period(start, end)
 
 
@@ -78,13 +85,13 @@ def purchase_expenses_for_period(start, end):
     total = Product.objects.filter(
         purchase_date__gte=start, purchase_date__lte=end,
     ).aggregate(s=Sum("purchase_price"))["s"]
-    return total or Decimal("0")
+    return _money(total)
 
 
 def tax_reserve(profit):
     """Return the suggested tax reserve for a profit amount."""
     rate = FinanceSettings.load().tax_reserve_rate
-    return (profit * rate / Decimal("100")).quantize(Decimal("0.01"))
+    return (profit * rate / Decimal("100")).quantize(CENT)
 
 
 def financial_summary(start, end):
@@ -111,7 +118,7 @@ def monthly_revenue(year):
         .annotate(total=Sum(_REVENUE_EXPR))
     )
     totals = {row["month"].month: row["total"] for row in rows}
-    return [totals.get(month, Decimal("0")) for month in range(1, 13)]
+    return [_money(totals.get(month)) for month in range(1, 13)]
 
 
 def _goal_bounds(goal):

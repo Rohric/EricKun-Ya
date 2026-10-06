@@ -19,13 +19,15 @@ class RegistrationView(APIView):
         serializer = RegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        refresh = RefreshToken.for_user(user)
-        return Response(
-            {
-                "refresh": str(refresh),
-                "access": str(refresh.access_token),
-                "email": user.email,
-                "user_id": user.id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        return Response(_token_payload(user), status=status.HTTP_201_CREATED)
+
+
+def _token_payload(user):
+    """Return a fresh JWT pair together with the user's email and id."""
+    refresh = RefreshToken.for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+        "email": user.email,
+        "user_id": user.id,
+    }

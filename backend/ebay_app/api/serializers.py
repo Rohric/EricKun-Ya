@@ -3,7 +3,8 @@
 from rest_framework import serializers
 
 from ebay_app.models import EbayListing, EbayShippingProfile
-from ebay_app.services.listings import listing_url
+from ebay_app.services import assignment
+from ebay_app.services.listings import CHANNEL, CHANNEL_LABEL, listing_url
 from ebay_app.services.orders import CARRIERS
 from products_app.models import Product
 
@@ -87,7 +88,7 @@ class EbayListingSerializer(serializers.ModelSerializer):
     class Meta:
         model = EbayListing
         fields = [
-            "category_id", "category_name", "shipping_profile", "shipping_profile_name", "best_offer",
+            "sku", "category_id", "category_name", "shipping_profile", "shipping_profile_name", "best_offer",
             "offer_id", "listing_id", "status", "state", "has_unsynced_changes", "last_synced",
             "sync_error", "url", "ebay_price", "sold_quantity", "facts_synced_at",
         ]
@@ -99,6 +100,59 @@ class EbayListingSerializer(serializers.ModelSerializer):
     def get_shipping_profile_name(self, obj):
         """Return the name of the chosen profile, or an empty string for the default one."""
         return obj.shipping_profile.name if obj.shipping_profile_id else ""
+
+
+class LinkSerializer(serializers.Serializer):
+    """Validate the article an unassigned listing is linked to."""
+
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+
+
+class IgnoreSerializer(serializers.Serializer):
+    """Validate whether an unassigned listing is hidden (default) or shown again."""
+
+    ignored = serializers.BooleanField(default=True)
+
+
+class UnassignedListingSerializer(serializers.ModelSerializer):
+    """Serialize a listing without article in the format every sales channel delivers."""
+
+    channel = serializers.SerializerMethodField()
+    channel_label = serializers.SerializerMethodField()
+    channel_sku = serializers.CharField(source="sku")
+    quantity = serializers.IntegerField(source="synced_quantity")
+    image = serializers.CharField(source="image_url")
+    url = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
+    suggestion = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EbayListing
+        fields = [
+            "id", "channel", "channel_label", "channel_sku", "listing_id", "title", "price", "quantity",
+            "image", "url", "status", "ignored", "supported", "needs_migration", "notes", "suggestion",
+        ]
+
+    def get_channel(self, obj):
+        """Return the key of the sales channel."""
+        return CHANNEL
+
+    def get_channel_label(self, obj):
+        """Return the display name of the sales channel."""
+        return CHANNEL_LABEL
+
+    def get_url(self, obj):
+        """Return the public eBay page of the listing."""
+        return listing_url(obj)
+
+    def get_notes(self, obj):
+        """Return the hints for this listing, e.g. that it is converted when it is linked."""
+        return assignment.notes(obj)
+
+    def get_suggestion(self, obj):
+        """Return the free article that fits best as {id, sku, title}, or None."""
+        product = assignment.suggest(obj, self.context.get("products", []))
+        return {"id": product.id, "sku": product.sku, "title": product.title} if product else None
 
 
 class ListingProductSerializer(serializers.ModelSerializer):

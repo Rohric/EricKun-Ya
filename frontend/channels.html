@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zuordnung – EricKun-Ya</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="nav"></header>
+  <main class="page">
+    <div class="page-head">
+      <h1>Zuordnung</h1>
+      <div class="head-actions" id="pull-buttons"></div>
+    </div>
+    <div id="message" class="message" style="display:none"></div>
+
+    <section class="card">
+      <p class="hint">
+        Hier stehen Inserate, die auf einem Portal online sind, aber noch zu keinem Artikel gehören – zum Beispiel
+        alles, was schon vor diesem Programm eingestellt wurde. Pro Inserat gibt es drei Wege:
+        <strong>Verknüpfen</strong> (der Artikel existiert schon), <strong>Neuer Artikel</strong> (er wird aus dem
+        Inserat angelegt und bekommt eine eigene Artikelnummer) oder <strong>Ignorieren</strong>.
+        Nach dem Verknüpfen gilt der Artikel: Weichen Preis oder Menge ab, steht das Inserat auf „Geändert" und
+        wird beim Synchronisieren angepasst.
+      </p>
+      <div class="filter-row">
+        <label>Portal<select id="filter-channel"></select></label>
+        <label class="radio check-row"><input type="checkbox" id="show-ignored" /> Ignorierte anzeigen</label>
+        <button type="button" id="create-all-btn" class="secondary">Alle als neue Artikel anlegen</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Portal</th><th></th><th>Inserat</th><th>Nummer beim Portal</th><th>Preis</th><th>Menge</th>
+            <th>Hinweis</th><th>Artikel</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="listing-rows"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/channels.js"></script>
+</body>
+</html>

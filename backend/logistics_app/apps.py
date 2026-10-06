@@ -1,3 +1,5 @@
+"""App configuration of the logistics app."""
+
 from django.apps import AppConfig
 
 

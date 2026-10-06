@@ -10,10 +10,14 @@ class Goal(models.Model):
     """Store a revenue or profit target over a period or fixed date range."""
 
     class Metric(models.TextChoices):
+        """List the figures a goal can be measured in."""
+
         REVENUE = "revenue", "Umsatz"
         PROFIT = "profit", "Gewinn"
 
     class Period(models.TextChoices):
+        """List the descriptive periods of a goal."""
+
         MONTHLY = "monthly", "Monatlich"
         YEARLY = "yearly", "Jährlich"
         TOTAL = "total", "Gesamt"
@@ -32,7 +36,7 @@ class Goal(models.Model):
 
 
 class FinanceSettings(models.Model):
-    """Singleton holding the adjustable tax-reserve rate and the estimated eBay fee rate (percent)."""
+    """Hold the adjustable tax-reserve rate and the estimated eBay fee rate in percent (singleton)."""
 
     tax_reserve_rate = models.DecimalField(max_digits=5, decimal_places=2, default=25)
     # Estimate only: the real fees would come from eBay's Finances API.

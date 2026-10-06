@@ -35,7 +35,8 @@ def refresh_quietly(listing):
 def refresh_all():
     """Refresh every online listing and return how many succeeded and failed."""
     result = {"refreshed": 0, "failed": 0}
-    for listing in EbayListing.objects.filter(status=EbayListing.Status.ONLINE).exclude(offer_id=""):
+    online = EbayListing.objects.filter(status=EbayListing.Status.ONLINE, product__isnull=False)
+    for listing in online.exclude(offer_id=""):
         try:
             refresh(listing)
             result["refreshed"] += 1

@@ -22,11 +22,21 @@ document.getElementById("cat-query").addEventListener("keydown", _searchOnEnter)
 // --- Panel "Inserate" ---
 
 async function loadListings() {
+  _renderUnassignedHint();
   listedProducts = await apiGet("/ebay/listings/?scope=listed");
   const rows = listedProducts.map(_listingRow).join("");
   document.getElementById("listing-rows").innerHTML =
     rows || `<tr><td colspan="10" class="empty">Noch nichts inseriert – siehe Reiter „Neu inserieren“.</td></tr>`;
   _bindActions("listing-rows", listedProducts);
+}
+
+// Point to the assignment page while listings on eBay still belong to no article.
+function _renderUnassignedHint() {
+  const count = ebayStatus ? ebayStatus.listings.unassigned : 0;
+  const box = document.getElementById("unassigned-hint");
+  box.style.display = count ? "block" : "none";
+  box.innerHTML = `${count} Inserat${count === 1 ? "" : "e"} bei eBay ${count === 1 ? "gehört" : "gehören"} noch zu keinem Artikel.
+    <a href="channels.html">Zur Zuordnung</a>`;
 }
 
 function _listingRow(product) {
@@ -40,10 +50,16 @@ function _listingRow(product) {
       <td>${product.quantity}</td>
       <td>${product.sold_units}</td>
       <td>${_stateBadge(listing)}${_errorLine(listing)}</td>
-      <td>${escapeHtml(listing.category_name) || "–"}</td>
+      <td>${_categoryCell(listing)}</td>
       <td>${escapeHtml(listing.shipping_profile_name) || "Standard"}${listing.best_offer ? '<span class="row-note">Preisvorschlag</span>' : ""}</td>
       <td class="actions">${_listingActions(product)}</td>
     </tr>`;
+}
+
+// The eBay category by name; a listing taken over from eBay only knows the number at first.
+function _categoryCell(listing) {
+  if (listing.category_name) return escapeHtml(listing.category_name);
+  return listing.category_id ? `<span class="hint">Nr. ${escapeHtml(listing.category_id)}</span>` : "–";
 }
 
 // The price eBay shows to buyers; highlighted when it differs from our own price.
@@ -59,14 +75,15 @@ function _ebayPrice(product) {
 function _listingActions(product) {
   const listing = product.listing;
   const edit = _actionButton(product, "publish", "Bearbeiten");
+  const unlink = _actionButton(product, "unlink", "Lösen");
   if (listing.status === "ended") {
     const sellable = product.status === "available" && product.quantity > 0;
-    return sellable ? _actionButton(product, "sync", "Wieder einstellen") + edit : '<span class="hint">nicht verkaufbar</span>';
+    return (sellable ? _actionButton(product, "sync", "Wieder einstellen") + edit : '<span class="hint">nicht verkaufbar</span>') + unlink;
   }
   const view = listing.url
     ? `<a class="link-btn" href="${escapeHtml(listing.url)}" target="_blank" rel="noopener">Ansehen</a>`
     : "";
-  return _actionButton(product, "sync", "Synchronisieren") + edit + _actionButton(product, "withdraw", "Beenden", "danger") + view;
+  return _actionButton(product, "sync", "Synchronisieren") + edit + _actionButton(product, "withdraw", "Beenden", "danger") + unlink + view;
 }
 
 // --- Panel "Neu inserieren" ---
@@ -110,8 +127,12 @@ function _thumb(product) {
     : `<span class="no-thumb">–</span>`;
 }
 
+// Title and article number; a listing taken over from eBay may carry another number there.
 function _titleCell(product) {
-  return `<strong>${escapeHtml(product.title)}</strong><br><span class="hint">${escapeHtml(product.sku)}</span>`;
+  const foreign = product.listing && product.listing.sku && product.listing.sku !== product.sku
+    ? `<span class="row-note">bei eBay: ${escapeHtml(product.listing.sku)}</span>`
+    : "";
+  return `<strong>${escapeHtml(product.title)}</strong><br><span class="hint">${escapeHtml(product.sku)}</span>${foreign}`;
 }
 
 function _stateBadge(listing) {
@@ -136,6 +157,7 @@ function _bindActions(tableId, products) {
   bind("publish", (id) => _openPublish(products.find((p) => p.id === id)));
   bind("sync", (id) => _runAction(id, "sync", "Inserat ist auf dem aktuellen Stand."));
   bind("withdraw", _withdraw);
+  bind("unlink", _unlink);
 }
 
 // Show feedback inside the active panel, because the page message is out of view down here.
@@ -170,6 +192,14 @@ async function _runAction(id, action, successText) {
 function _withdraw(id) {
   if (!confirm("Inserat bei eBay wirklich beenden?")) return;
   _runAction(id, "withdraw", "Inserat beendet.");
+}
+
+// Detach article and listing; the listing itself stays untouched on eBay.
+function _unlink(id) {
+  const question = "Verknüpfung lösen? Das Inserat bleibt bei eBay unverändert. Läuft es noch, " +
+    "erscheint es wieder unter „Zuordnung“ – Änderungen am Artikel erreichen es dann nicht mehr.";
+  if (!confirm(question)) return;
+  _runAction(id, "unlink", "Verknüpfung gelöst.");
 }
 
 async function _syncAll() {

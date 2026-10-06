@@ -28,14 +28,20 @@ def start_connection():
     account.oauth_state = secrets.token_urlsafe(24)
     account.oauth_state_created_at = timezone.now()
     account.save(update_fields=["oauth_state", "oauth_state_created_at"])
+    return _consent_url(account.oauth_state)
+
+
+def _consent_url(state):
+    """Build eBay's consent URL for our application, scopes and the given CSRF state."""
     params = {
         "client_id": settings.EBAY_CLIENT_ID,
         "redirect_uri": settings.EBAY_RUNAME,
         "response_type": "code",
         "scope": " ".join(client.SCOPES),
-        "state": account.oauth_state,
+        "state": state,
     }
-    return f"{client.environment()['auth']}?{urlencode(params, quote_via=quote)}"
+    auth_url = client.environment()["auth"]
+    return f"{auth_url}?{urlencode(params, quote_via=quote)}"
 
 
 def finish_connection(redirect_url):
@@ -114,6 +120,11 @@ def _refresh(account):
 def call(method, path, **kwargs):
     """Call the eBay API on behalf of the connected seller."""
     return client.request(method, path, access_token=get_access_token(), **kwargs)
+
+
+def trading_call(call_name, body):
+    """Call eBay's older Trading API (XML) on behalf of the connected seller."""
+    return client.trading_request(call_name, body, get_access_token())
 
 
 def get_app_token():

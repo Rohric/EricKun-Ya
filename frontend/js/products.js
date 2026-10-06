@@ -265,12 +265,18 @@ function _productRows(p) {
       <td>${_statusBadge(p)}</td>
       <td>${_channelBadges(p.id)}</td>
       <td>${CONDITION_LABELS[p.condition] || p.condition}</td>
-      <td>${formatEuro(p.purchase_price)}</td>
+      <td>${_purchaseCell(p)}</td>
       <td>${formatEuro(p.sale_price)}</td>
       <td>${formatEuro(p.profit)}</td>
       <td>${_stockCell(p, open)}</td>
       <td class="actions">${_rowActions(p)}</td>
     </tr>${open ? _unitsRow(p) : ""}`;
+}
+
+// Articles taken over from a listing start without purchase price; remind the user to add it.
+function _purchaseCell(product) {
+  const missing = Number(product.purchase_price) === 0 ? '<span class="row-note">nachtragen</span>' : "";
+  return `${formatEuro(product.purchase_price)}${missing}`;
 }
 
 function _statusBadge(product) {
