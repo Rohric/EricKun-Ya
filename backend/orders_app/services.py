@@ -3,13 +3,51 @@
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from orders_app.models import Cancellation, Order
+from orders_app.models import Cancellation, Order, OrderItem
 from products_app.models import Product
 
 SOURCES = ("ebay", "manual")
 BAD_SOURCE = "Unbekannte Herkunft. Erlaubt: ebay, manual."
 BAD_PAYMENT = "Unbekannter Zahlungsstatus. Erlaubt: paid, pending."
 BAD_STATUS = "Unbekannter Bestellstatus."
+BAD_PRODUCTS = "„products“ muss eine kommagetrennte Liste von Artikel-IDs sein."
+
+
+def parse_product_ids(raw):
+    """Turn "1,2,3" into a list of ids; an empty value means all products."""
+    parts = [part.strip() for part in (raw or "").split(",") if part.strip()]
+    if not all(part.isdigit() for part in parts):
+        raise ValidationError(BAD_PRODUCTS)
+    return [int(part) for part in parts]
+
+
+def product_sales(product_ids=None):
+    """Return {product id: {"sold": units, "sales": [...]}} from all non-cancelled orders."""
+    items = OrderItem.objects.filter(product__isnull=False).select_related("order")
+    items = items.exclude(order__fulfillment_status=Order.Fulfillment.CANCELLED)
+    if product_ids:
+        items = items.filter(product_id__in=product_ids)
+    result = {}
+    for item in items.order_by("-order__sold_at", "-id"):
+        entry = result.setdefault(str(item.product_id), {"sold": 0, "sales": []})
+        entry["sold"] += item.quantity
+        entry["sales"].append(_sale_entry(item))
+    return result
+
+
+def _sale_entry(item):
+    """Describe one sold position of a product for the article page."""
+    order = item.order
+    return {
+        "order": order.pk,
+        "sold_at": order.sold_at,
+        "quantity": item.quantity,
+        "sold_price": item.sold_price,
+        "fulfillment_status": order.fulfillment_status,
+        "payment_status": order.payment_status,
+        "source": "ebay" if order.ebay_order_id else "manual",
+        "buyer_name": order.buyer_name,
+    }
 
 
 def filter_orders(queryset, params):

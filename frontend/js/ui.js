@@ -11,44 +11,51 @@ const FULFILLMENT_LABELS = {
   delivered: "Zugestellt", in_return: "In Reklamation", cancelled: "Storniert",
 };
 
-// Main areas shown in the header; every other page is reached through the dashboard.
-const NAV_LINKS = [
-  ["dashboard.html", "Dashboard"],
-  ["products.html", "Artikel"],
-  ["ebay.html", "eBay"],
+// The areas of the header. Each area lists the views of its second navigation row;
+// the eBay page fills that row itself with its sub-tabs (see ebay.js).
+const NAV_AREAS = [
+  { href: "dashboard.html", label: "Dashboard", views: [["dashboard.html", "Übersicht"], ["finances.html", "Finanzen"]] },
+  {
+    href: "products.html", label: "Artikel",
+    views: [
+      ["products.html", "Artikel"], ["orders.html", "Bestellungen"],
+      ["warehouse.html", "Lager"], ["ebay.html#listings", "eBay-Inserate"],
+    ],
+  },
+  { href: "ebay.html", label: "eBay", views: [] },
 ];
+const SUBNAV_ID = "subnav";  // container of the second navigation row
 
-// Render the shared top navigation into the element with id "nav".
-function renderNav(active) {
+// Render the header and the second navigation row into the element with id "nav".
+function renderNav(page) {
   const nav = document.getElementById("nav");
   if (!nav) return;
-  const items = NAV_LINKS.map(([href, label]) =>
-    `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`
-  ).join("");
+  const area = _areaOf(page);
+  const areas = NAV_AREAS.map((entry) => _navLink(entry.href, entry.label, entry === area)).join("");
+  const views = area.views.map(([href, label]) => _navLink(href, label, href === page)).join("");
   nav.innerHTML = `<div class="nav-inner">
       <span class="brand">EricKun-Ya</span>
-      <div class="nav-links">${items}</div>
+      <div class="nav-links">${areas}</div>
       <button id="logout-btn" class="link-btn">Logout</button>
-    </div>`;
+    </div>
+    <div class="subnav"><div class="subnav-inner" id="${SUBNAV_ID}">${views}</div></div>`;
   document.getElementById("logout-btn").addEventListener("click", logout);
-  if (!NAV_LINKS.some(([href]) => href === active)) renderBackLink();
 }
 
-// Put a link back to the dashboard above the content of pages that are not in the header.
-function renderBackLink() {
-  const page = document.querySelector("main.page");
-  if (!page || page.querySelector(".back-link")) return;
-  const link = document.createElement("a");
-  link.className = "back-link";
-  link.href = "dashboard.html";
-  link.textContent = "← Dashboard";
-  page.prepend(link);
+// Return the header area a page belongs to (the dashboard area if it is unknown).
+function _areaOf(page) {
+  const owns = (area) => area.href === page || area.views.some(([href]) => href === page);
+  return NAV_AREAS.find(owns) || NAV_AREAS[0];
+}
+
+function _navLink(href, label, active) {
+  return `<a href="${href}" class="${active ? "active" : ""}">${label}</a>`;
 }
 
 // Render sub-tabs from [key, label] pairs into a container and call onSelect(key) on click.
 function renderTabs(containerId, tabs, activeKey, onSelect) {
   const box = document.getElementById(containerId);
-  box.className = "tabs";
+  box.classList.add("tabs");
   box.innerHTML = tabs.map(([key, label]) =>
     `<button type="button" class="${key === activeKey ? "active" : ""}" data-tab="${key}">${label}</button>`
   ).join("");

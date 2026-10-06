@@ -7,10 +7,14 @@ ohne Framework.
 ## Überblick
 
 - Sieben Seiten: Login, Dashboard, Artikel, Bestellungen, Lager, Finanzen, eBay
-- Der Header zeigt nur **Dashboard, Artikel, eBay**. Bestellungen, Lager und Finanzen erreicht
-  man über die Kacheln auf dem Dashboard; diese Seiten haben oben einen Link „← Dashboard"
-- Artikel, eBay und Finanzen sind in Unterreiter gegliedert; eBay und Finanzen merken sich den
-  Reiter in der Adresse (`#…`), er bleibt beim Neuladen erhalten
+- Der Header zeigt nur die drei Bereiche **Dashboard, Artikel, eBay**. Darunter steht eine
+  **zweite Navigationszeile** mit den Ansichten des Bereichs:
+  - Dashboard: Übersicht · Finanzen
+  - Artikel: Artikel · Bestellungen · Lager · eBay-Inserate
+  - eBay: Übersicht · Inserate · Neu inserieren · Vorlagen · Verkäufe · Auswertung
+- Die Kacheln auf dem Dashboard führen zusätzlich als Abkürzung in die Bereiche
+- Artikel und Finanzen haben eigene Reiter innerhalb der Seite; eBay und Finanzen merken sich
+  die Ansicht in der Adresse (`#…`), sie bleibt beim Neuladen erhalten
 - Alle Daten kommen über `/api/…` vom Django-Backend (same-origin, kein CORS nötig)
 
 ## Starten
@@ -69,8 +73,12 @@ frontend/
 ### Artikel (`products.html`, `products.js`)
 - Reiter **Alle · Verfügbar · Reserviert · Verkauft · Archiv**, jeweils mit Anzahl
 - Filter: Kategorie (inkl. Unterkategorien) und Suche nach Titel oder Artikelnummer
-- Tabelle mit Bild, SKU, Titel, Kategorie, Status, **Kanäle**, Zustand, Preisen, Gewinn, Menge;
-  seitenweise (25 pro Seite)
+- Tabelle mit Bild, SKU, Titel, Kategorie, Status, **Kanäle**, Zustand, Preisen, Gewinn,
+  **Bestand**; seitenweise (25 pro Seite)
+- Spalte „Bestand": `noch da / insgesamt`, z. B. „1 / 2", mit Balken für den verkauften Anteil.
+  Hat ein Artikel Verkäufe, lässt sich die Zeile aufklappen: eine Kachel „im Lager" (Status,
+  Inserat) und je Verkauf eine Kachel mit Datum, Preis, Kanal, Käufer, Bestell- und
+  Zahlungsstatus. Die Daten kommen aus `/api/orders/product-sales/`
 - Spalte „Kanäle": je Verkaufskanal ein Badge (heute „eBay · Online / Geändert / Beendet /
   Entwurf / Fehler"), bei laufendem Inserat als Link. Die Daten kommen getrennt aus
   `/api/ebay/listing-states/`; ein weiterer Kanal wäre nur ein weiterer Eintrag
@@ -140,7 +148,8 @@ einen Hinweis.
 - **`api.js`** – `apiGet`, `apiSend`, `apiDelete`, `apiUpload` (multipart); hängt den
   Bearer-Token an, erneuert ihn bei 401 einmal automatisch
 - **`auth.js`** – Token-Speicher, `login`, `register`, `logout`, `requireAuth`
-- **`ui.js`** – `renderNav`, `renderBackLink`, `renderTabs`, `showMessage`, `errorText`,
+- **`ui.js`** – `renderNav` (Header + zweite Zeile, Bereiche in `NAV_AREAS`), `renderTabs`,
+  `showMessage`, `errorText`,
   `escapeHtml`, `formatEuro`, `formatPercent`, `inputValue`, `markActive`, `renderTiles`,
   `renderGoalCard`, `renderPager`, `periodRange`, `isoDate`; Beschriftungen
   `LISTING_STATE_LABELS`, `PAYMENT_LABELS`, `FULFILLMENT_LABELS`

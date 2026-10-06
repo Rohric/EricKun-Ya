@@ -228,6 +228,12 @@ Plan mit acht Abschnitten (siehe Plan-Datei oben), alle gebaut; Stand der Commit
   Unterreiter lädt ohne Konsolenfehler. Den Klick-Test der Oberfläche macht Emil.
 - **Weiter offen:** echter eBay-Verkauf (Abholen, Storno, Versandmeldung), Storno an eBay,
   echte Gebühren, Production-Schlüssel mit Konto-Löschmeldungen.
+- **Nachgezogen nach Emils erstem Durchklicken:** zweite Navigationszeile je Bereich
+  (`NAV_AREAS` in `frontend/js/ui.js`; der Zurück-Link zum Dashboard entfiel, die eBay-Unterreiter
+  stehen jetzt in dieser Zeile); Artikelseite zeigt den Bestand als „noch da / insgesamt" und
+  klappt je Artikel Lager und Verkäufe auf (`GET /api/orders/product-sales/`).
+  Hintergrund: Artikel-Status (Ware noch da?) und Bestell-Status (wie weit ist ein Verkauf?)
+  sind bewusst getrennt – ein Artikel mit Restbestand bleibt „Verfügbar" und online.
 
 ### Danach
 - **Echter Sandbox-Durchlauf:** verbinden → Policies → Lagerort → inserieren → als Buyer

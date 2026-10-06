@@ -28,6 +28,10 @@ document.getElementById("disconnect-btn").addEventListener("click", _disconnect)
 document.querySelectorAll("#report-period button").forEach((btn) =>
   btn.addEventListener("click", () => _selectReportPeriod(btn.dataset.period))
 );
+// Follow the browser's back/forward buttons between sub-tabs.
+window.addEventListener("hashchange", () => {
+  if (_tabFromHash() !== activeTab) selectTab(_tabFromHash());
+});
 
 init();
 
@@ -48,7 +52,7 @@ function _tabFromHash() {
 async function refresh() {
   ebayStatus = await apiGet("/ebay/status/");
   _renderBadge(ebayStatus.environment);
-  renderTabs("ebay-tabs", EBAY_TABS, activeTab, selectTab);
+  renderTabs(SUBNAV_ID, EBAY_TABS, activeTab, selectTab);  // the sub-tabs are the second navigation row
   await _showPanel();
 }
 

@@ -57,6 +57,17 @@ class OrderDetail(generics.RetrieveUpdateDestroyAPIView):
         instance.delete()
 
 
+class ProductSalesView(APIView):
+    """Tell the article page how many units of each product were sold, and in which orders."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return {product id: {sold, sales}}; ?products=1,2,3 limits the answer to those ids."""
+        product_ids = services.parse_product_ids(request.query_params.get("products", ""))
+        return Response(services.product_sales(product_ids))
+
+
 class OrderCancelView(APIView):
     """Cancel an order: restock its items, record the reason, apply the product action."""
 

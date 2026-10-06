@@ -32,6 +32,8 @@ mit und ist die Datengrundlage für alle Auswertungen in `finance_app`.
 
 - `services.filter_orders` – Filter der Liste nach Herkunft (eBay / manuell), Zahlungsstatus
   und Bestellstatus; ungültige Werte liefern 400 mit deutscher Meldung
+- `services.product_sales` – verkaufte Stück und Verkäufe je Artikel; die Artikelseite zeigt
+  damit den Bestand als „noch da / insgesamt" (`products_app` kennt die Bestellungen nicht)
 - `services.apply_stock_change` – ändert die Menge; Menge 0 → Status „verkauft",
   Menge wieder > 0 → „verfügbar"
 - `services.sync_stock` – bucht alle Positionen einer Bestellung ab oder zurück
@@ -52,6 +54,7 @@ mit und ist die Datengrundlage für alle Auswertungen in `finance_app`.
 |---|---|---|
 | GET / POST | `/api/orders/` | Bestellungen (neueste zuerst; `?source=ebay\|manual`, `?payment=paid\|pending`, `?status=`, optional `?page=N`) / neue inkl. `items` |
 | GET / PUT / PATCH / DELETE | `/api/orders/<id>/` | Einzelne Bestellung; Löschen bucht den Bestand zurück |
+| GET | `/api/orders/product-sales/?products=1,2,3` | Je Artikel-ID `sold` (verkaufte Stück) und `sales` (Verkäufe mit Datum, Preis, Status, Zahlung, Kanal, Käufer) aus nicht stornierten Bestellungen; ohne `?products=` für alle |
 | POST | `/api/orders/<id>/cancel/` | Stornieren; Body `item_action`: `available` \| `archive` \| `delete`, optional `reason` |
 
 Abholen von eBay-Verkäufen und das Melden des Versands liegen in der `ebay_app`

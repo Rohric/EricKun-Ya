@@ -15,6 +15,7 @@ const STATUS_TABS = [
   ["sold", "Verkauft"], ["archived", "Archiv"],
 ];
 const INACTIVE_STATES = ["sold", "archived"];
+const COLUMN_COUNT = 12;  // columns of the product table, for rows that span all of them
 const SEARCH_DELAY_MS = 300;
 
 let categories = [];
@@ -22,6 +23,8 @@ let currentStatus = "all";
 let currentPage = 1;
 let currentProductId = null;
 let channelStates = {};
+let productSales = {};                // {product id: {sold, sales}} for the products on this page
+const expandedProducts = new Set();   // products whose sales are unfolded
 let searchTimer = null;
 
 document.getElementById("new-product-btn").addEventListener("click", () => _openForm());
@@ -211,9 +214,17 @@ async function loadProducts() {
     apiGet(`/products/counts/?${_filterQuery()}`),
     _loadChannelStates(),
   ]);
+  productSales = await _loadSales(data.results);
   _renderTabs(counts);
   _renderRows(data.results);
   renderPager("product-pager", data, currentPage, _goToPage);
+}
+
+// Sold units per product on this page; without them the table simply shows the stock.
+function _loadSales(products) {
+  if (!products.length) return {};
+  const ids = products.map((product) => product.id).join(",");
+  return apiGet(`/orders/product-sales/?products=${ids}`).catch(() => ({}));
 }
 
 function _listQuery() {
@@ -235,24 +246,97 @@ function _renderTabs(counts) {
 }
 
 function _renderRows(products) {
-  const rows = products.map((p) => `
-    <tr>
+  const rows = products.map(_productRows).join("");
+  document.getElementById("product-rows").innerHTML =
+    rows || `<tr><td colspan="${COLUMN_COUNT}" class="empty">Keine Artikel.</td></tr>`;
+  _bindRowActions(products);
+  _bindStockToggles(products);
+}
+
+// The product's table row, followed by its unfolded sales if they are open.
+function _productRows(p) {
+  const open = expandedProducts.has(p.id) && Boolean(productSales[p.id]);
+  return `
+    <tr class="${open ? "row-open" : ""}">
       <td>${_thumb(p)}</td>
       <td>${escapeHtml(p.sku)}</td>
       <td>${escapeHtml(p.title)}</td>
       <td>${escapeHtml(p.category_path) || "–"}</td>
-      <td><span class="badge badge-${p.status}">${STATUS_LABELS[p.status] || p.status}</span></td>
+      <td>${_statusBadge(p)}</td>
       <td>${_channelBadges(p.id)}</td>
       <td>${CONDITION_LABELS[p.condition] || p.condition}</td>
       <td>${formatEuro(p.purchase_price)}</td>
       <td>${formatEuro(p.sale_price)}</td>
       <td>${formatEuro(p.profit)}</td>
-      <td>${p.quantity}</td>
+      <td>${_stockCell(p, open)}</td>
       <td class="actions">${_rowActions(p)}</td>
-    </tr>`).join("");
-  document.getElementById("product-rows").innerHTML =
-    rows || `<tr><td colspan="12" class="empty">Keine Artikel.</td></tr>`;
-  _bindRowActions(products);
+    </tr>${open ? _unitsRow(p) : ""}`;
+}
+
+function _statusBadge(product) {
+  return `<span class="badge badge-${product.status}">${STATUS_LABELS[product.status] || product.status}</span>`;
+}
+
+// --- Stock "left / total" and the unfolded sales below a product ---
+
+// "1 / 2" = one unit left of two; with sales the cell is a toggle for the details below.
+function _stockCell(product, open) {
+  const sold = productSales[product.id] ? productSales[product.id].sold : 0;
+  const total = product.quantity + sold;
+  const share = total ? (sold / total) * 100 : 0;
+  const title = `${product.quantity} von ${total} noch im Lager, ${sold} verkauft`;
+  const label = `<span class="stock-numbers">${product.quantity} / ${total}</span>
+    <span class="stock-bar"><span style="width:${share}%"></span></span>`;
+  if (!sold) return `<span class="stock" title="${title}">${label}</span>`;
+  const arrow = `<span class="stock-arrow">${open ? "▾" : "▸"}</span>`;
+  return `<button type="button" class="stock stock-toggle" data-units="${product.id}" title="${title} – Verkäufe anzeigen">${arrow}${label}</button>`;
+}
+
+function _unitsRow(product) {
+  const sales = productSales[product.id].sales.map(_saleTile).join("");
+  return `
+    <tr class="units-row">
+      <td colspan="${COLUMN_COUNT}"><div class="unit-list">${_stockTile(product)}${sales}</div></td>
+    </tr>`;
+}
+
+// What is still in stock, with the product status and where it is listed.
+function _stockTile(product) {
+  if (!product.quantity) return "";
+  const channels = _channelBadges(product.id);
+  return `
+    <div class="unit unit-stock">
+      <strong>${product.quantity}× im Lager</strong>
+      ${_statusBadge(product)}
+      ${channels === "–" ? '<span class="hint">nicht inseriert</span>' : channels}
+    </div>`;
+}
+
+// One sale of the product: when, for how much, through which channel and how far the order is.
+function _saleTile(sale) {
+  const date = new Date(sale.sold_at).toLocaleDateString("de-DE");
+  const channel = sale.source === "ebay" ? "eBay" : "Manuell";
+  const buyer = sale.buyer_name ? `<span>an ${escapeHtml(sale.buyer_name)}</span>` : "";
+  return `
+    <div class="unit unit-sold">
+      <strong>${sale.quantity}× verkauft</strong>
+      <span>am ${date} für ${formatEuro(sale.sold_price)}</span>
+      <span class="chip">${channel}</span>
+      ${buyer}
+      <span class="badge badge-${sale.fulfillment_status}">${FULFILLMENT_LABELS[sale.fulfillment_status]}</span>
+      <span class="badge badge-pay-${sale.payment_status}">${PAYMENT_LABELS[sale.payment_status]}</span>
+      <a class="link-btn" href="orders.html">Bestellung #${sale.order}</a>
+    </div>`;
+}
+
+function _bindStockToggles(products) {
+  document.querySelectorAll("[data-units]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.units);
+      if (!expandedProducts.delete(id)) expandedProducts.add(id);
+      _renderRows(products);
+    })
+  );
 }
 
 // One badge per sales channel the product is listed on (linked to the listing if online).
