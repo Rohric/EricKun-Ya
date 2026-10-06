@@ -1,9 +1,11 @@
 """Aggregate the eBay connection and setup state for the eBay tab."""
 
+from collections import Counter
+
 from django.conf import settings
 
 from ebay_app import client
-from ebay_app.models import EbayAccount, EbayLocation
+from ebay_app.models import EbayAccount, EbayListing, EbayLocation
 
 
 def connection_status():
@@ -20,7 +22,14 @@ def connection_status():
         "location": _location_info(location),
         "ready": account.is_connected and account.has_policies and location_ok,
         "orders_synced_at": account.orders_synced_at,
+        "listings": listing_counts(),
     }
+
+
+def listing_counts():
+    """Count the listings per displayed state (online, changed, ended, draft, error)."""
+    states = Counter(listing.state for listing in EbayListing.objects.select_related("product"))
+    return {state: states.get(state, 0) for state in ("online", "changed", "ended", "draft", "error")}
 
 
 def _location_info(location):

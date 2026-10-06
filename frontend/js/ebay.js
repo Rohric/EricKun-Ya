@@ -1,15 +1,33 @@
 "use strict";
 
+// Shell of the eBay tab: sub-tabs, the overview panel and the report panel.
+// The other panels live in ebay-listings.js, ebay-templates.js and ebay-sales.js.
+
 requireAuth();
 renderNav("ebay.html");
 
-let servicesLoaded = false;
+const EBAY_TABS = [
+  ["overview", "Übersicht"], ["listings", "Inserate"], ["new", "Neu inserieren"],
+  ["templates", "Vorlagen"], ["sales", "Verkäufe"], ["report", "Auswertung"],
+];
+const TAB_LOADERS = {
+  overview: loadOverview, listings: loadListings, new: loadUnlisted,
+  templates: loadTemplates, sales: loadSales, report: loadEbayReport,
+};
+const NEEDS_SETUP = ["listings", "new"];  // only usable once the checklist is complete
+const NEEDS_CONNECTION = ["templates"];
+const WAITING_STATES = ["open", "packed"];
+
+let ebayStatus = null;
+let activeTab = _tabFromHash();
+let reportPeriod = "year";
 
 document.getElementById("connect-btn").addEventListener("click", _startConnect);
 document.getElementById("finish-btn").addEventListener("click", _finishConnect);
 document.getElementById("disconnect-btn").addEventListener("click", _disconnect);
-document.getElementById("policies-form").addEventListener("submit", _savePolicies);
-document.getElementById("location-btn").addEventListener("click", _syncLocation);
+document.querySelectorAll("#report-period button").forEach((btn) =>
+  btn.addEventListener("click", () => _selectReportPeriod(btn.dataset.period))
+);
 
 init();
 
@@ -21,15 +39,46 @@ async function init() {
   }
 }
 
-// Reload the eBay status and render every section.
+function _tabFromHash() {
+  const tab = window.location.hash.replace("#", "");
+  return EBAY_TABS.some(([key]) => key === tab) ? tab : "overview";
+}
+
+// Reload the eBay status, redraw the sub-tabs and load the active panel.
 async function refresh() {
-  const status = await apiGet("/ebay/status/");
-  _renderBadge(status.environment);
-  _renderChecklist(status);
-  _renderConnection(status);
-  _toggleSetup(status.connected);
-  if (status.connected) await _loadSetup(status);
-  await loadListings(status);  // see ebay-listings.js
+  ebayStatus = await apiGet("/ebay/status/");
+  _renderBadge(ebayStatus.environment);
+  renderTabs("ebay-tabs", EBAY_TABS, activeTab, selectTab);
+  await _showPanel();
+}
+
+function selectTab(tab) {
+  activeTab = tab;
+  window.location.hash = tab;
+  showMessage("", false);
+  refresh().catch((err) => showMessage(errorText(err)));
+}
+
+// Show the active panel, or a hint if it cannot be used yet.
+async function _showPanel() {
+  const lock = _lockReason(activeTab);
+  document.querySelectorAll(".panel").forEach((panel) => {
+    panel.style.display = !lock && panel.dataset.panel === activeTab ? "block" : "none";
+  });
+  const hint = document.getElementById("locked-hint");
+  hint.textContent = lock;
+  hint.style.display = lock ? "block" : "none";
+  if (!lock) await TAB_LOADERS[activeTab](ebayStatus);
+}
+
+function _lockReason(tab) {
+  if (NEEDS_CONNECTION.includes(tab) && !ebayStatus.connected) {
+    return "Bitte zuerst im Reiter „Übersicht“ mit eBay verbinden.";
+  }
+  if (NEEDS_SETUP.includes(tab) && !ebayStatus.ready) {
+    return "Inserieren geht erst, wenn die Checkliste im Reiter „Übersicht“ vollständig ist (Verbindung, Vorlagen, Lagerort).";
+  }
+  return "";
 }
 
 function _renderBadge(environment) {
@@ -38,13 +87,36 @@ function _renderBadge(environment) {
   badge.className = `env-badge env-${environment}`;
 }
 
+// --- Overview ---
+
+async function loadOverview(status) {
+  _renderChecklist(status);
+  _renderConnection(status);
+  const sales = await apiGet("/orders/?source=ebay").catch(() => []);
+  _renderFigures(status, sales);
+}
+
+function _renderFigures(status, sales) {
+  const waiting = sales.filter((order) => WAITING_STATES.includes(order.fulfillment_status));
+  const unpaid = waiting.filter((order) => order.payment_status === "pending").length;
+  const counts = status.listings;
+  const figures = [
+    ["Inserate online", counts.online + counts.changed], ["Geändert, nicht übertragen", counts.changed],
+    ["Mit Fehler", counts.error], ["Beendet", counts.ended],
+    ["Verkäufe zu verschicken", waiting.length], ["davon Zahlung offen", unpaid],
+  ];
+  document.getElementById("ebay-figures").innerHTML = figures.map(([label, value]) =>
+    `<div class="tile"><span class="tile-label">${label}</span><span class="tile-value">${value}</span></div>`
+  ).join("");
+}
+
 function _renderChecklist(status) {
   const missing = status.missing_settings;
   const steps = [
     [!missing.length, missing.length ? `Zugangsdaten in der .env – fehlt: ${missing.join(", ")}` : "Zugangsdaten in der .env"],
     [status.connected, "Mit eBay verbunden"],
-    [status.policies_ready, "Versand, Rückgabe und Zahlung eingerichtet"],
-    [Boolean(status.location) && !status.location.needs_resync, "Lagerort an eBay übertragen"],
+    [status.policies_ready, "Versandprofil, Rückgabe und Zahlung eingerichtet (Reiter „Vorlagen“)"],
+    [Boolean(status.location) && !status.location.needs_resync, "Lagerort an eBay übertragen (Reiter „Vorlagen“)"],
     [status.ready, "Bereit zum Inserieren"],
   ];
   document.getElementById("checklist").innerHTML = steps.map(([done, label]) =>
@@ -60,14 +132,6 @@ function _renderConnection(status) {
   document.getElementById("connect-btn").textContent = status.connected ? "Neu verbinden" : "Mit eBay verbinden";
   document.getElementById("disconnect-btn").style.display = status.connected ? "inline-block" : "none";
 }
-
-function _toggleSetup(connected) {
-  ["policies-card", "location-card"].forEach((id) =>
-    document.getElementById(id).classList.toggle("disabled", !connected)
-  );
-}
-
-// --- Connection ---
 
 async function _startConnect() {
   const tab = window.open("", "_blank");  // open synchronously so the browser does not block it
@@ -99,82 +163,21 @@ async function _disconnect() {
   if (!confirm("Verbindung zu eBay wirklich trennen?")) return;
   try {
     await apiSend("/ebay/disconnect/", "POST", {});
-    servicesLoaded = false;
     await refresh();
   } catch (err) {
     showMessage(errorText(err));
   }
 }
 
-// --- Setup: policies + location ---
+// --- Report (eBay sales only) ---
 
-async function _loadSetup(status) {
-  if (!servicesLoaded) await _loadShippingServices();
-  _fillPolicies(await apiGet("/ebay/policies/"));
-  await _renderLocation(status.location);
+async function loadEbayReport() {
+  const { from, to } = periodRange(reportPeriod);
+  await renderSalesReport("ebay-report", { from, to, channel: "ebay" });
 }
 
-async function _loadShippingServices() {
-  const services = await apiGet("/ebay/shipping-services/");
-  document.getElementById("p-service").innerHTML = services.map((s) =>
-    `<option value="${escapeHtml(s.code)}">${escapeHtml(s.name)}</option>`
-  ).join("");
-  servicesLoaded = true;
-}
-
-function _fillPolicies(values) {
-  const set = (id, value) => {
-    if (value !== "" && value != null) document.getElementById(id).value = value;
-  };
-  set("p-service", values.shipping_service);
-  set("p-cost", values.shipping_cost);
-  set("p-handling", values.handling_days);
-  set("p-return-days", values.return_days);
-  set("p-return-payer", values.return_cost_payer);
-}
-
-async function _savePolicies(e) {
-  e.preventDefault();
-  const payload = {
-    shipping_service: inputValue("p-service"),
-    shipping_cost: inputValue("p-cost"),
-    handling_days: Number(inputValue("p-handling")),
-    return_days: Number(inputValue("p-return-days")),
-    return_cost_payer: inputValue("p-return-payer"),
-  };
-  try {
-    await apiSend("/ebay/policies/", "PUT", payload);
-    showMessage("Versand, Rückgabe und Zahlung bei eBay gespeichert.", false);
-    await refresh();
-  } catch (err) {
-    showMessage(errorText(err));
-  }
-}
-
-async function _renderLocation(location) {
-  const warehouse = (await apiGet("/warehouses/")).find((w) => w.is_default);
-  const info = document.getElementById("location-info");
-  document.getElementById("location-btn").disabled = !warehouse;
-  if (!warehouse) {
-    info.innerHTML = 'Noch kein Lagerort angelegt. <a href="warehouse.html">Im Reiter „Lager“ anlegen</a>.';
-    return;
-  }
-  const address = `${warehouse.street}, ${warehouse.zip_code} ${warehouse.city}`;
-  info.textContent = `${warehouse.name} – ${address} – ${_locationState(location)}`;
-}
-
-function _locationState(location) {
-  if (!location) return "noch nicht an eBay übertragen.";
-  if (location.needs_resync) return "Adresse geändert, bitte erneut übertragen.";
-  return `übertragen am ${new Date(location.last_synced).toLocaleDateString("de-DE")}.`;
-}
-
-async function _syncLocation() {
-  try {
-    await apiSend("/ebay/location/sync/", "POST", {});
-    showMessage("Lagerort an eBay übertragen.", false);
-    await refresh();
-  } catch (err) {
-    showMessage(errorText(err));
-  }
+function _selectReportPeriod(period) {
+  reportPeriod = period;
+  markActive("report-period", "period", period);
+  loadEbayReport().catch((err) => showMessage(errorText(err)));
 }

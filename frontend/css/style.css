@@ -217,6 +217,35 @@ button:disabled, button:disabled:hover { opacity: 0.45; cursor: default; }
 .finish-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .card.disabled { opacity: 0.5; pointer-events: none; }
 
+/* Navigation helpers: back link, sub-tabs, dashboard area tiles */
+.back-link { display: inline-block; margin-bottom: 10px; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+.back-link:hover { color: var(--ink); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.tabs button { background: none; color: var(--muted); border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; padding: 9px 16px; }
+.tabs button:hover { background: none; color: var(--ink); }
+.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.area-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.area-tile { display: flex; flex-direction: column; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; text-decoration: none; color: var(--ink); }
+.area-tile:hover { border-color: var(--accent); }
+.area-title { color: var(--accent); font-weight: 600; font-size: 0.9rem; }
+.area-value { font-size: 1.35rem; font-weight: 700; }
+.area-note { color: var(--muted); font-size: 0.82rem; }
+
+/* Filter rows above tables */
+.filter-row { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-row label { margin-bottom: 0; min-width: 180px; }
+.filter-row button { margin-bottom: 1px; }
+
+/* Payment badges, numeric report tables, revenue share bars */
+.badge-pay-paid { background: #e8f6ec; color: var(--ok); }
+.badge-pay-pending { background: #fff4e0; color: #b7791f; }
+.data-table th.num, .data-table td.num { text-align: right; white-space: nowrap; }
+.report-table tfoot td { font-weight: 700; background: #fafbfc; border-top: 2px solid var(--line); border-bottom: none; }
+.share-cell { width: 28%; }
+.share-bar { height: 10px; min-width: 2px; background: var(--accent); border-radius: 5px; }
+.price-diff { color: #b7791f; font-weight: 600; border-bottom: 1px dotted #b7791f; cursor: help; }
+.modal-card .check-row { align-self: end; margin-bottom: 20px; }
+
 /* eBay listings and sales */
 .badge-listing-none, .badge-listing-ended { background: #edf1f5; color: var(--muted); }
 .badge-listing-draft, .badge-listing-changed { background: #fff4e0; color: #b7791f; }

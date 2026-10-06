@@ -1,9 +1,40 @@
-"""Business logic for orders: stock synchronisation and cancellation."""
+"""Business logic for orders: list filters, stock synchronisation and cancellation."""
 
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
-from orders_app.models import Cancellation
+from orders_app.models import Cancellation, Order
 from products_app.models import Product
+
+SOURCES = ("ebay", "manual")
+BAD_SOURCE = "Unbekannte Herkunft. Erlaubt: ebay, manual."
+BAD_PAYMENT = "Unbekannter Zahlungsstatus. Erlaubt: paid, pending."
+BAD_STATUS = "Unbekannter Bestellstatus."
+
+
+def filter_orders(queryset, params):
+    """Narrow orders by the optional ?source=, ?payment= and ?status= parameters."""
+    queryset = _by_source(queryset, params.get("source"))
+    queryset = _by_choice(queryset, "payment_status", params.get("payment"), Order.Payment.values, BAD_PAYMENT)
+    return _by_choice(queryset, "fulfillment_status", params.get("status"), Order.Fulfillment.values, BAD_STATUS)
+
+
+def _by_source(queryset, source):
+    """Keep orders that came from eBay, or the manually entered ones."""
+    if not source:
+        return queryset
+    if source not in SOURCES:
+        raise ValidationError(BAD_SOURCE)
+    return queryset.filter(ebay_order_id__isnull=source == "manual")
+
+
+def _by_choice(queryset, field, value, allowed, message):
+    """Filter a choice field by an optional value; an unknown value is a client error."""
+    if not value:
+        return queryset
+    if value not in allowed:
+        raise ValidationError(message)
+    return queryset.filter(**{field: value})
 
 
 def apply_stock_change(product, delta):

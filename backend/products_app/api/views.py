@@ -3,9 +3,12 @@
 from rest_framework import generics
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.pagination import OptionalPagePagination
 from products_app.models import Category, Product, ProductImage
+from products_app.utils import filter_products, status_counts
 
 from .serializers import CategorySerializer, ProductImageSerializer, ProductSerializer
 
@@ -41,8 +44,8 @@ class ProductList(generics.ListCreateAPIView):
     """
     List and create products.
 
-    - GET: active products by default; ?view=archive|all switches the scope,
-      ?page=N enables pagination.
+    - GET: active products by default; ?view=archive|all switches the scope, ?status= selects
+      one status instead; ?category= and ?search= narrow the list; ?page=N enables pagination.
     - POST: create a new product.
     """
 
@@ -51,13 +54,25 @@ class ProductList(generics.ListCreateAPIView):
     pagination_class = OptionalPagePagination
 
     def get_queryset(self):
-        """Return the product scope selected by the ?view= parameter."""
-        view = self.request.query_params.get("view", "active")
+        """Return the filtered products in the scope chosen by ?status= or ?view=."""
+        params = self.request.query_params
+        queryset = filter_products(_product_queryset(), params)
+        view = "all" if params.get("status") else params.get("view", "active")
         if view == "archive":
-            return _product_queryset().filter(status__in=ARCHIVE_STATES)
+            return queryset.filter(status__in=ARCHIVE_STATES)
         if view == "all":
-            return _product_queryset()
-        return _product_queryset().exclude(status__in=ARCHIVE_STATES)
+            return queryset
+        return queryset.exclude(status__in=ARCHIVE_STATES)
+
+
+class ProductCountsView(APIView):
+    """Count the products per status for the tabs of the product page."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return {all, available, reserved, sold, archived}, honouring ?category= and ?search=."""
+        return Response(status_counts(request.query_params))
 
 
 class ProductDetail(generics.RetrieveUpdateDestroyAPIView):

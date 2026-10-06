@@ -26,7 +26,8 @@ class OrderList(generics.ListCreateAPIView):
     """
     List and create orders.
 
-    - GET: newest first; ?page=N enables pagination.
+    - GET: newest first; ?source=ebay|manual, ?payment=paid|pending and ?status= narrow the
+      list; ?page=N enables pagination.
     - POST: create an order with its items and book the stock.
     """
 
@@ -35,8 +36,8 @@ class OrderList(generics.ListCreateAPIView):
     pagination_class = OptionalPagePagination
 
     def get_queryset(self):
-        """Return orders with their related data preloaded."""
-        return _order_queryset()
+        """Return the filtered orders with their related data preloaded."""
+        return services.filter_orders(_order_queryset(), self.request.query_params)
 
 
 class OrderDetail(generics.RetrieveUpdateDestroyAPIView):

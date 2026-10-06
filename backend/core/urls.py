@@ -6,6 +6,8 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.static import serve as static_serve
 
+from core.views import DashboardSummaryView
+
 # The frontend lives in a sibling folder; Django serves it in DEBUG so the whole
 # app runs from a single `runserver`. In production a real web server serves it.
 FRONTEND_DIR = settings.BASE_DIR.parent / "frontend"
@@ -18,6 +20,7 @@ urlpatterns = [
     path("api/", include("finance_app.api.urls")),
     path("api/", include("logistics_app.api.urls")),
     path("api/", include("ebay_app.api.urls")),
+    path("api/dashboard/summary/", DashboardSummaryView.as_view(), name="dashboard-summary"),
 ]
 
 if settings.DEBUG:

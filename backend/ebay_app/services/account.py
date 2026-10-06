@@ -1,6 +1,4 @@
-"""Seller setup on eBay: business policy opt-in, the three policies and shipping services."""
-
-from decimal import Decimal
+"""Seller setup on eBay: business policy opt-in, return and payment policy, shipping services."""
 
 from django.conf import settings
 
@@ -8,21 +6,13 @@ from ebay_app.models import EbayAccount
 from ebay_app.services.oauth import call
 
 POLICY_PROGRAM = "SELLING_POLICY_MANAGEMENT"
-POLICY_KINDS = ("fulfillment", "return", "payment")
+POLICY_KINDS = ("return", "payment")
 POLICY_NAMES = {
-    "fulfillment": "EricKun-Ya Versand",
     "return": "EricKun-Ya Rückgabe",
     "payment": "EricKun-Ya Zahlung",
 }
 CATEGORY_TYPES = [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]
-CURRENCY = "EUR"
-DEFAULT_FORM = {
-    "shipping_service": "",
-    "shipping_cost": "",
-    "handling_days": 1,
-    "return_days": 30,
-    "return_cost_payer": "BUYER",
-}
+DEFAULT_FORM = {"return_days": 30, "return_cost_payer": "BUYER"}
 
 
 def ensure_policy_opt_in():
@@ -59,11 +49,25 @@ def _service_option(service):
     return {"code": code, "name": service.get("description") or code}
 
 
+def policy_base(name):
+    """Return the fields every business policy shares."""
+    return {"name": name, "marketplaceId": settings.EBAY_MARKETPLACE_ID, "categoryTypes": CATEGORY_TYPES}
+
+
+def find_policy_id(kind, name):
+    """Return the id of an existing eBay policy of that kind and name, e.g. after a database reset."""
+    params = {"marketplace_id": settings.EBAY_MARKETPLACE_ID}
+    for policy in call("GET", f"/sell/account/v1/{kind}_policy", params=params).get(f"{kind}Policies", []):
+        if policy.get("name") == name:
+            return policy[f"{kind}PolicyId"]
+    return ""
+
+
 def save_policies(form):
-    """Opt in if needed, then create or update all three policies and store their ids."""
+    """Opt in if needed, then create or update the return and payment policy and store their ids."""
     ensure_policy_opt_in()
     account = EbayAccount.load()
-    builders = {"fulfillment": _fulfillment_payload, "return": _return_payload, "payment": _payment_payload}
+    builders = {"return": _return_payload, "payment": _payment_payload}
     for kind in POLICY_KINDS:
         _upsert_policy(account, kind, builders[kind](form))
     account.save()
@@ -72,7 +76,7 @@ def save_policies(form):
 def _upsert_policy(account, kind, payload):
     """Update the known policy, or create it (re-using an existing one with our name)."""
     path = f"/sell/account/v1/{kind}_policy"
-    policy_id = getattr(account, f"{kind}_policy_id") or _find_policy_id(kind)
+    policy_id = getattr(account, f"{kind}_policy_id") or find_policy_id(kind, POLICY_NAMES[kind])
     if policy_id:
         call("PUT", f"{path}/{policy_id}", json=payload)
     else:
@@ -80,40 +84,10 @@ def _upsert_policy(account, kind, payload):
     setattr(account, f"{kind}_policy_id", policy_id)
 
 
-def _find_policy_id(kind):
-    """Return the id of an existing policy with our name, e.g. after a database reset."""
-    params = {"marketplace_id": settings.EBAY_MARKETPLACE_ID}
-    for policy in call("GET", f"/sell/account/v1/{kind}_policy", params=params).get(f"{kind}Policies", []):
-        if policy.get("name") == POLICY_NAMES[kind]:
-            return policy[f"{kind}PolicyId"]
-    return ""
-
-
-def _base(kind):
-    """Return the fields every policy shares."""
-    return {"name": POLICY_NAMES[kind], "marketplaceId": settings.EBAY_MARKETPLACE_ID, "categoryTypes": CATEGORY_TYPES}
-
-
-def _fulfillment_payload(form):
-    """Build a flat-rate domestic shipping policy from the form."""
-    cost = Decimal(form["shipping_cost"])
-    service = {
-        "shippingServiceCode": form["shipping_service"],
-        "shippingCost": {"value": f"{cost:.2f}", "currency": CURRENCY},
-        "freeShipping": cost == 0,
-        "sortOrder": 1,
-    }
-    return {
-        **_base("fulfillment"),
-        "handlingTime": {"unit": "DAY", "value": form["handling_days"]},
-        "shippingOptions": [{"optionType": "DOMESTIC", "costType": "FLAT_RATE", "shippingServices": [service]}],
-    }
-
-
 def _return_payload(form):
     """Build the return policy (returns accepted, money back)."""
     return {
-        **_base("return"),
+        **policy_base(POLICY_NAMES["return"]),
         "returnsAccepted": True,
         "returnPeriod": {"unit": "DAY", "value": form["return_days"]},
         "returnShippingCostPayer": form["return_cost_payer"],
@@ -123,30 +97,17 @@ def _return_payload(form):
 
 def _payment_payload(form):
     """Build the payment policy (payments managed by eBay, immediate payment)."""
-    return {**_base("payment"), "immediatePay": True}
+    return {**policy_base(POLICY_NAMES["payment"]), "immediatePay": True}
 
 
 def current_policies():
-    """Return the stored policies' values for pre-filling the setup form."""
+    """Return the stored return policy's values for pre-filling the setup form."""
     account = EbayAccount.load()
     values = dict(DEFAULT_FORM)
-    if account.fulfillment_policy_id:
-        path = f"/sell/account/v1/fulfillment_policy/{account.fulfillment_policy_id}"
-        values.update(_read_fulfillment(call("GET", path)))
     if account.return_policy_id:
         values.update(_read_return(call("GET", f"/sell/account/v1/return_policy/{account.return_policy_id}")))
+    values["saved"] = bool(account.return_policy_id and account.payment_policy_id)
     return values
-
-
-def _read_fulfillment(policy):
-    """Extract service, cost and handling time from a fulfillment policy."""
-    option = (policy.get("shippingOptions") or [{}])[0]
-    service = (option.get("shippingServices") or [{}])[0]
-    return {
-        "shipping_service": service.get("shippingServiceCode", ""),
-        "shipping_cost": (service.get("shippingCost") or {}).get("value", ""),
-        "handling_days": (policy.get("handlingTime") or {}).get("value", 1),
-    }
 
 
 def _read_return(policy):

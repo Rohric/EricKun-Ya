@@ -3,6 +3,7 @@
 from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,6 +20,8 @@ PAGE_SIZE = 50
 FIRST_IMPORT_DAYS = 90
 OVERLAP = timedelta(minutes=5)  # re-read a little so no late change is missed
 PAID_STATES = ("PAID", "PARTIALLY_REFUNDED")
+OPEN_PAYMENT_STATES = ("PENDING",)  # eBay reserves the item, so the stock is booked right away
+SIMULATED_PREFIX = "SIM-"  # order ids created by the sandbox sale simulation
 CARRIERS = [
     {"code": "DHL", "name": "DHL"},
     {"code": "Hermes", "name": "Hermes"},
@@ -30,12 +33,18 @@ CARRIERS = [
 CANCELLED_ON_EBAY = "Bei eBay storniert."
 NOT_FROM_EBAY = "Diese Bestellung stammt nicht von eBay."
 IS_CANCELLED = "Eine stornierte Bestellung kann nicht verschickt werden."
+NOT_PAID = "Die Zahlung ist noch offen. Bitte erst nach Zahlungseingang verschicken."
+
+
+def is_simulated(order):
+    """Return True for orders created by the sandbox sale simulation (eBay does not know them)."""
+    return settings.EBAY_ENV == "sandbox" and (order.ebay_order_id or "").startswith(SIMULATED_PREFIX)
 
 
 # --- Import ---
 
 def import_orders():
-    """Fetch new and changed eBay orders; return what was created and cancelled."""
+    """Fetch new and changed eBay orders; return what was created, paid and cancelled."""
     account = EbayAccount.load()
     started = timezone.now()
     result = import_payloads(_changed_orders(account.orders_synced_at))
@@ -45,8 +54,8 @@ def import_orders():
 
 
 def import_payloads(payloads):
-    """Process eBay order payloads (real or simulated); return what was created and cancelled."""
-    result = {"created": 0, "cancelled": 0, "unknown_skus": []}
+    """Process eBay order payloads (real or simulated); return what was created, paid and cancelled."""
+    result = {"created": 0, "paid": 0, "cancelled": 0, "unknown_skus": []}
     for payload in payloads:
         _import_one(payload, result)
     return result
@@ -71,22 +80,57 @@ def _ebay_time(moment):
 
 @transaction.atomic
 def _import_one(payload, result):
-    """Create a new paid order, or cancel a known one that eBay shows as cancelled."""
+    """Create a new order, cancel a known one or mark it paid – whatever eBay reports."""
     order = Order.objects.filter(ebay_order_id=payload["orderId"]).first()
     cancelled = (payload.get("cancelStatus") or {}).get("cancelState") == "CANCELED"
-    if order is None and not cancelled and payload.get("orderPaymentStatus") in PAID_STATES:
-        _create_order(payload, result)
-        result["created"] += 1
-    elif order and cancelled and order.fulfillment_status != Order.Fulfillment.CANCELLED:
-        cancel_order(order, Cancellation.ItemAction.AVAILABLE, CANCELLED_ON_EBAY, Cancellation.Source.EBAY)
-        result["cancelled"] += 1
+    if order is None:
+        _create_if_wanted(payload, cancelled, result)
+    elif cancelled:
+        _cancel_known(order, result)
+    else:
+        _mark_paid(order, payload, result)
 
 
-def _create_order(payload, result):
+def _create_if_wanted(payload, cancelled, result):
+    """Create the order unless eBay shows it as cancelled, failed or fully refunded."""
+    payment = _payment_status(payload)
+    if cancelled or payment is None:
+        return
+    _create_order(payload, payment, result)
+    result["created"] += 1
+
+
+def _payment_status(payload):
+    """Translate eBay's payment status; None for states that are not worth an order."""
+    status = payload.get("orderPaymentStatus")
+    if status in PAID_STATES:
+        return Order.Payment.PAID
+    return Order.Payment.PENDING if status in OPEN_PAYMENT_STATES else None
+
+
+def _cancel_known(order, result):
+    """Cancel a local order that eBay now shows as cancelled, and restock its items."""
+    if order.fulfillment_status == Order.Fulfillment.CANCELLED:
+        return
+    cancel_order(order, Cancellation.ItemAction.AVAILABLE, CANCELLED_ON_EBAY, Cancellation.Source.EBAY)
+    result["cancelled"] += 1
+
+
+def _mark_paid(order, payload, result):
+    """Set a waiting order to paid once eBay reports the payment."""
+    if order.payment_status == Order.Payment.PAID or _payment_status(payload) != Order.Payment.PAID:
+        return
+    order.payment_status = Order.Payment.PAID
+    order.save(update_fields=["payment_status"])
+    result["paid"] += 1
+
+
+def _create_order(payload, payment, result):
     """Create the local order with buyer data and items, then book the stock."""
     order = Order.objects.create(
         ebay_order_id=payload["orderId"],
         sold_at=parse_datetime(payload["creationDate"]),
+        payment_status=payment,
         ebay_username=(payload.get("buyer") or {}).get("username", ""),
         **_shipping_fields(payload),
     )
@@ -143,16 +187,24 @@ def _mirror_sold_quantity(product, quantity):
 
 def report_shipment(order, carrier, tracking_number):
     """Report the shipment of an eBay order to eBay and mark it shipped locally."""
-    if not order.ebay_order_id:
-        raise ValidationError(NOT_FROM_EBAY)
-    if order.fulfillment_status == Order.Fulfillment.CANCELLED:
-        raise ValidationError(IS_CANCELLED)
-    payload = _shipment_payload(order, carrier, tracking_number)
-    call("POST", f"{ORDERS}/{order.ebay_order_id}/shipping_fulfillment", json=payload)
+    _require_shippable(order)
+    if not is_simulated(order):  # eBay does not know simulated orders; they are only marked locally
+        payload = _shipment_payload(order, carrier, tracking_number)
+        call("POST", f"{ORDERS}/{order.ebay_order_id}/shipping_fulfillment", json=payload)
     order.fulfillment_status = Order.Fulfillment.SHIPPED
     order.shipping_carrier, order.tracking_number = carrier, tracking_number
     order.save(update_fields=["fulfillment_status", "shipping_carrier", "tracking_number"])
     return order
+
+
+def _require_shippable(order):
+    """Raise unless the order came from eBay, is not cancelled and has been paid."""
+    if not order.ebay_order_id:
+        raise ValidationError(NOT_FROM_EBAY)
+    if order.fulfillment_status == Order.Fulfillment.CANCELLED:
+        raise ValidationError(IS_CANCELLED)
+    if order.payment_status != Order.Payment.PAID:
+        raise ValidationError(NOT_PAID)
 
 
 def _shipment_payload(order, carrier, tracking_number):

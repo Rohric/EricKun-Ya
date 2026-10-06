@@ -12,10 +12,6 @@
     <div class="page-head">
       <h1>Artikel</h1>
       <div class="head-actions">
-        <div class="view-switch" id="view-switch">
-          <button data-view="active" class="active">Aktiv</button>
-          <button data-view="archive">Archiv</button>
-        </div>
         <button id="manage-cats-btn" class="secondary">Kategorien</button>
         <button id="new-product-btn">+ Neuer Artikel</button>
       </div>
@@ -88,10 +84,17 @@
       </div>
     </form>
 
+    <div id="status-tabs"></div>
+    <div class="filter-row">
+      <label>Kategorie<select id="filter-category"></select></label>
+      <label>Suche<input type="search" id="filter-search" placeholder="Titel oder Artikelnummer" /></label>
+      <button type="button" id="filter-reset" class="secondary">Filter zurücksetzen</button>
+    </div>
+
     <table class="data-table">
       <thead>
         <tr>
-          <th>Bild</th><th>SKU</th><th>Titel</th><th>Kategorie</th><th>Status</th>
+          <th>Bild</th><th>SKU</th><th>Titel</th><th>Kategorie</th><th>Status</th><th>Kanäle</th>
           <th>Zustand</th><th>EK</th><th>VK</th><th>Gewinn</th><th>Menge</th><th></th>
         </tr>
       </thead>

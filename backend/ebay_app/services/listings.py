@@ -1,18 +1,22 @@
-"""Put products online on eBay: inventory item, offer, publish, sync and withdraw."""
+"""Put products online on eBay: inventory item, offer, publish, sync, withdraw and fee preview."""
 
 import logging
+from decimal import Decimal
 
 from django.conf import settings
+from django.db.models import Q, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.exceptions import APIException, ValidationError
 
 from ebay_app import client
 from ebay_app.exceptions import EbayApiError
-from ebay_app.models import EbayAccount, EbayCategoryMapping, EbayListing, EbayLocation
-from ebay_app.services import images, taxonomy
+from ebay_app.models import EbayAccount, EbayCategoryMapping, EbayListing, EbayLocation, EbayShippingProfile
+from ebay_app.services import facts, images, taxonomy
 from ebay_app.services.conditions import condition_hint, condition_note, ebay_condition
 from ebay_app.services.oauth import call
 from ebay_app.services.overview import connection_status
+from orders_app.models import Order
 from products_app.models import Product
 
 logger = logging.getLogger(__name__)
@@ -23,20 +27,27 @@ CURRENCY = "EUR"
 TITLE_MAX = 80  # eBay's limit for listing titles
 ENDING_STATES = (Product.Status.SOLD, Product.Status.ARCHIVED)
 ONLINE = EbayListing.Status.ONLINE
+LISTED_STATES = (EbayListing.Status.ONLINE, EbayListing.Status.ENDED)
 NOT_READY = "eBay ist noch nicht fertig eingerichtet. Bitte zuerst die Checkliste im eBay-Reiter abschließen."
 NOT_SELLABLE = "Nur verfügbare Artikel mit Bestand können inseriert werden."
 TITLE_TOO_LONG = f"Der Titel darf bei eBay höchstens {TITLE_MAX} Zeichen haben."
 NO_LISTING = "Dieser Artikel wurde noch nicht inseriert."
 MISSING_ASPECTS = "Pflicht-Merkmale fehlen: {names}"
+BAD_SCOPE = "Unbekannter Bereich. Erlaubt: all, listed, unlisted."
+NO_PREVIEW_ONLINE = "Für ein laufendes Inserat gibt es keine Gebühren-Vorschau."
 
 
 # --- Overview ---
 
 def listing_products():
-    """Return all products with listing, remembered eBay category and images preloaded."""
+    """Return all products with listing, profile, remembered category, images and units sold on eBay."""
+    sold_on_ebay = Q(order_items__order__ebay_order_id__isnull=False) & ~Q(
+        order_items__order__fulfillment_status=Order.Fulfillment.CANCELLED
+    )
     return (
-        Product.objects.select_related("ebay_listing", "category__parent", "category__ebay_mapping")
+        Product.objects.select_related("ebay_listing__shipping_profile", "category__parent", "category__ebay_mapping")
         .prefetch_related("images")
+        .annotate(sold_units=Coalesce(Sum("order_items__quantity", filter=sold_on_ebay), 0))
         .order_by("-created_at")
     )
 
@@ -44,6 +55,29 @@ def listing_products():
 def active_listing_products():
     """Return the products that are not sold or archived, i.e. the ones that can be listed."""
     return listing_products().exclude(status__in=ENDING_STATES)
+
+
+def products_in_scope(scope):
+    """Return the products of one eBay tab: listed, unlisted or all sellable ones."""
+    if scope == "listed":
+        return listing_products().filter(ebay_listing__status__in=LISTED_STATES)
+    if scope == "unlisted":
+        not_online = Q(ebay_listing__isnull=True) | Q(ebay_listing__status=EbayListing.Status.DRAFT)
+        return active_listing_products().filter(not_online)
+    if scope in ("", "all"):
+        return active_listing_products()
+    raise ValidationError(BAD_SCOPE)
+
+
+def channel_states():
+    """Return {product id: [channel entries]} so the product page can show where an article is listed."""
+    listings = EbayListing.objects.select_related("product")
+    return {str(listing.product_id): [_channel_entry(listing)] for listing in listings}
+
+
+def _channel_entry(listing):
+    """Describe a listing as one sales channel of its product."""
+    return {"channel": "ebay", "label": "eBay", "state": listing.state, "url": listing_url(listing)}
 
 
 def listing_url(listing):
@@ -63,15 +97,21 @@ def requirements(category_id, product_id=""):
 
 # --- Actions ---
 
-def publish(product, category, aspects):
-    """Store the chosen category and aspects, put the product online and remember the category."""
-    _require_sellable(product)
-    _store_aspects(product, category["id"], aspects)
-    defaults = {"category_id": category["id"], "category_name": category["name"]}
-    listing, _ = EbayListing.objects.update_or_create(product=product, defaults=defaults)
+def publish(product, category, aspects, **options):
+    """Store the listing choices, put the product online and remember the category."""
+    listing = _prepare(product, category, aspects, options)
     _push_or_record(listing)
     _remember_category(product, category)
     return listing
+
+
+def preview(product, category, aspects, **options):
+    """Transfer item and offer without publishing and return eBay's expected listing fees."""
+    if EbayListing.objects.filter(product=product, status=ONLINE).exists():
+        raise ValidationError(NO_PREVIEW_ONLINE)
+    listing = _prepare(product, category, aspects, options)
+    _transfer(listing)
+    return _fees(listing)
 
 
 def sync(product):
@@ -116,6 +156,21 @@ def remove_item(sku):
 
 # --- Checks and bookkeeping ---
 
+def _prepare(product, category, aspects, options):
+    """Check the product, store aspects and listing choices, and return the listing."""
+    _require_sellable(product)
+    _store_aspects(product, category["id"], aspects)
+    defaults = {
+        "category_id": category["id"],
+        "category_name": category["name"],
+        "shipping_profile": options.get("shipping_profile"),
+        "best_offer": bool(options.get("best_offer")),
+    }
+    listing, _ = EbayListing.objects.update_or_create(product=product, defaults=defaults)
+    listing.product = product  # reuse the loaded instance instead of querying it again
+    return listing
+
+
 def _require_sellable(product):
     """Raise unless eBay is fully set up and the product can be offered."""
     if not connection_status()["ready"]:
@@ -128,7 +183,7 @@ def _require_sellable(product):
 
 def _listing_of(product):
     """Return the product's listing or raise if it was never listed."""
-    listing = EbayListing.objects.filter(product=product).first()
+    listing = EbayListing.objects.select_related("shipping_profile").filter(product=product).first()
     if listing is None:
         raise ValidationError(NO_LISTING)
     listing.product = product  # reuse the loaded instance instead of querying it again
@@ -198,11 +253,18 @@ def _error_text(exc):
 
 def _push(listing):
     """Transfer item and offer, publish the offer unless eBay already shows it, record the state."""
+    _transfer(listing)
+    listing.listing_id = _published_listing_id(listing) or _publish_offer(listing)
+    _mark(listing, ONLINE)
+    facts.refresh_quietly(listing)
+    return listing
+
+
+def _transfer(listing):
+    """Create or replace the inventory item and its offer on eBay (nothing is published here)."""
     sku = listing.product.sku
     call("PUT", f"{INVENTORY}/inventory_item/{sku}", headers=LANGUAGE, json=_item_payload(listing))
     _save_offer(listing)
-    listing.listing_id = _published_listing_id(listing) or _publish_offer(listing)
-    return _mark(listing, ONLINE)
 
 
 def _save_offer(listing):
@@ -240,6 +302,21 @@ def _published_listing_id(listing):
 def _publish_offer(listing):
     """Publish the offer and return the id of the new eBay listing."""
     return call("POST", f"{INVENTORY}/offer/{listing.offer_id}/publish")["listingId"]
+
+
+def _fees(listing):
+    """Ask eBay for the fees of the unpublished offer and return them with their sum."""
+    body = {"offers": [{"offerId": listing.offer_id}]}
+    summaries = call("POST", f"{INVENTORY}/offer/get_listing_fees", json=body).get("feeSummaries") or [{}]
+    fees = [_fee(raw) for raw in summaries[0].get("fees", [])]
+    charged = [fee for fee in fees if Decimal(fee["amount"]) > 0]  # eBay lists every fee type, most are 0
+    total = sum((Decimal(fee["amount"]) for fee in charged), Decimal("0"))
+    return {"fees": charged, "total": f"{total:.2f}", "currency": CURRENCY}
+
+
+def _fee(raw):
+    """Map one eBay fee entry to {type, amount}."""
+    return {"type": raw.get("feeType", ""), "amount": (raw.get("amount") or {}).get("value", "0")}
 
 
 # --- Payloads ---
@@ -284,15 +361,20 @@ def _offer_payload(listing):
         "availableQuantity": product.quantity,
         "categoryId": listing.category_id,
         "merchantLocationKey": EbayLocation.objects.get(warehouse__is_default=True).merchant_location_key,
-        "pricingSummary": {"price": {"value": f"{product.sale_price:.2f}", "currency": CURRENCY}},
-        "listingPolicies": _policy_ids(EbayAccount.load()),
+        "pricingSummary": {"price": {"value": f"{Decimal(product.sale_price):.2f}", "currency": CURRENCY}},
+        "listingPolicies": _listing_policies(listing),
     }
 
 
-def _policy_ids(account):
-    """Return the three business policy ids in the shape an offer expects."""
-    return {
-        "fulfillmentPolicyId": account.fulfillment_policy_id,
+def _listing_policies(listing):
+    """Return the policy ids of the listing's shipping profile, return and payment, plus best offer."""
+    account = EbayAccount.load()
+    profile = listing.shipping_profile or EbayShippingProfile.default()
+    policies = {
+        "fulfillmentPolicyId": profile.policy_id,
         "paymentPolicyId": account.payment_policy_id,
         "returnPolicyId": account.return_policy_id,
     }
+    if listing.best_offer:  # an offer is replaced as a whole, so leaving it out switches it off
+        policies["bestOfferTerms"] = {"bestOfferEnabled": True}
+    return policies

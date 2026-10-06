@@ -10,24 +10,32 @@ const CONDITION_LABELS = {
 const STATUS_LABELS = {
   available: "Verfügbar", reserved: "Reserviert", sold: "Verkauft", archived: "Archiviert",
 };
+const STATUS_TABS = [
+  ["all", "Alle"], ["available", "Verfügbar"], ["reserved", "Reserviert"],
+  ["sold", "Verkauft"], ["archived", "Archiv"],
+];
+const INACTIVE_STATES = ["sold", "archived"];
+const SEARCH_DELAY_MS = 300;
 
 let categories = [];
-let currentView = "active";
+let currentStatus = "all";
 let currentPage = 1;
 let currentProductId = null;
+let channelStates = {};
+let searchTimer = null;
 
-document.getElementById("new-product-btn").addEventListener("click", _newProduct);
+document.getElementById("new-product-btn").addEventListener("click", () => _openForm());
 document.getElementById("cancel-product").addEventListener("click", _closeForm);
 document.getElementById("product-form").addEventListener("submit", _saveProduct);
 document.getElementById("image-input").addEventListener("change", _uploadImages);
 document.getElementById("manage-cats-btn").addEventListener("click", _toggleCatManager);
 document.getElementById("add-parent").addEventListener("click", _addParentCategory);
 document.getElementById("add-sub").addEventListener("click", _addSubCategory);
+document.getElementById("filter-category").addEventListener("change", _applyFilters);
+document.getElementById("filter-search").addEventListener("input", _searchSoon);
+document.getElementById("filter-reset").addEventListener("click", _resetFilters);
 document.getElementById("p-parent-cat").addEventListener("change", () =>
   _fillSubDropdown("p-sub-cat", inputValue("p-parent-cat"))
-);
-document.querySelectorAll("#view-switch button").forEach((btn) =>
-  btn.addEventListener("click", () => _selectView(btn.dataset.view))
 );
 
 init();
@@ -41,19 +49,49 @@ async function init() {
   }
 }
 
-// --- View switch (active vs. archive) + paging ---
+// --- Status tabs, filters and paging ---
 
-function _selectView(view) {
-  currentView = view;
+function _selectStatus(status) {
+  currentStatus = status;
   currentPage = 1;
-  markActive("view-switch", "view", view);
   _closeForm();
-  loadProducts().catch((err) => showMessage(errorText(err)));
+  _reload();
+}
+
+function _applyFilters() {
+  currentPage = 1;
+  _reload();
+}
+
+// Wait until typing pauses before searching.
+function _searchSoon() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(_applyFilters, SEARCH_DELAY_MS);
+}
+
+function _resetFilters() {
+  document.getElementById("filter-category").value = "";
+  document.getElementById("filter-search").value = "";
+  _applyFilters();
 }
 
 function _goToPage(page) {
   currentPage = page;
+  _reload();
+}
+
+function _reload() {
   loadProducts().catch((err) => showMessage(errorText(err)));
+}
+
+// Query string of the category and search filters (shared by list and counts).
+function _filterQuery() {
+  const params = new URLSearchParams();
+  const category = inputValue("filter-category");
+  const search = inputValue("filter-search");
+  if (category) params.set("category", category);
+  if (search) params.set("search", search);
+  return params;
 }
 
 // Reload the list; step back a page if the current one became empty.
@@ -72,6 +110,7 @@ async function _reloadAfterRemoval() {
 async function loadCategories() {
   categories = await apiGet("/categories/");
   _fillParentDropdowns();
+  _fillCategoryFilter();
   _renderCatList();
 }
 
@@ -83,6 +122,17 @@ function _fillParentDropdowns() {
   const opts = _parents().map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   document.getElementById("p-parent-cat").innerHTML = `<option value="">– keine –</option>${opts}`;
   document.getElementById("sub-parent-select").innerHTML = opts || `<option value="">(erst Oberkategorie)</option>`;
+}
+
+// Category filter: parents with their sub-categories indented below them.
+function _fillCategoryFilter() {
+  const select = document.getElementById("filter-category");
+  const chosen = select.value;
+  const option = (c, indent) => `<option value="${c.id}">${indent}${escapeHtml(c.name)}</option>`;
+  select.innerHTML = `<option value="">Alle Kategorien</option>` + _parents().map((parent) =>
+    option(parent, "") + categories.filter((c) => c.parent === parent.id).map((sub) => option(sub, "– ")).join("")
+  ).join("");
+  select.value = chosen;
 }
 
 function _fillSubDropdown(selectId, parentId, selected) {
@@ -156,9 +206,32 @@ async function _deleteCategory(id) {
 // --- Product list ---
 
 async function loadProducts() {
-  const data = await apiGet(`/products/?view=${currentView}&page=${currentPage}`);
+  const [data, counts] = await Promise.all([
+    apiGet(`/products/?${_listQuery()}`),
+    apiGet(`/products/counts/?${_filterQuery()}`),
+    _loadChannelStates(),
+  ]);
+  _renderTabs(counts);
   _renderRows(data.results);
   renderPager("product-pager", data, currentPage, _goToPage);
+}
+
+function _listQuery() {
+  const params = _filterQuery();
+  params.set("page", currentPage);
+  if (currentStatus === "all") params.set("view", "all");
+  else params.set("status", currentStatus);
+  return params;
+}
+
+// Where each product is listed; the table still works if eBay data cannot be loaded.
+async function _loadChannelStates() {
+  channelStates = await apiGet("/ebay/listing-states/").catch(() => ({}));
+}
+
+function _renderTabs(counts) {
+  const tabs = STATUS_TABS.map(([key, label]) => [key, `${label} (${counts[key]})`]);
+  renderTabs("status-tabs", tabs, currentStatus, _selectStatus);
 }
 
 function _renderRows(products) {
@@ -169,6 +242,7 @@ function _renderRows(products) {
       <td>${escapeHtml(p.title)}</td>
       <td>${escapeHtml(p.category_path) || "–"}</td>
       <td><span class="badge badge-${p.status}">${STATUS_LABELS[p.status] || p.status}</span></td>
+      <td>${_channelBadges(p.id)}</td>
       <td>${CONDITION_LABELS[p.condition] || p.condition}</td>
       <td>${formatEuro(p.purchase_price)}</td>
       <td>${formatEuro(p.sale_price)}</td>
@@ -177,13 +251,24 @@ function _renderRows(products) {
       <td class="actions">${_rowActions(p)}</td>
     </tr>`).join("");
   document.getElementById("product-rows").innerHTML =
-    rows || `<tr><td colspan="11" class="empty">Keine Artikel.</td></tr>`;
+    rows || `<tr><td colspan="12" class="empty">Keine Artikel.</td></tr>`;
   _bindRowActions(products);
+}
+
+// One badge per sales channel the product is listed on (linked to the listing if online).
+function _channelBadges(productId) {
+  const channels = channelStates[productId] || [];
+  if (!channels.length) return "–";
+  return channels.map((channel) => {
+    const text = `${escapeHtml(channel.label)} · ${LISTING_STATE_LABELS[channel.state] || channel.state}`;
+    const badge = `<span class="badge badge-listing-${channel.state}">${text}</span>`;
+    return channel.url ? `<a href="${escapeHtml(channel.url)}" target="_blank" rel="noopener">${badge}</a>` : badge;
+  }).join(" ");
 }
 
 function _rowActions(product) {
   const del = `<button data-del="${product.id}" class="link-btn danger">Löschen</button>`;
-  if (currentView === "archive") {
+  if (INACTIVE_STATES.includes(product.status)) {
     return `<button data-react="${product.id}" class="link-btn">Reaktivieren</button>${del}`;
   }
   return `<button data-edit="${product.id}" class="link-btn">Bearbeiten</button>${del}`;
@@ -213,7 +298,7 @@ async function _reactivate(id) {
 }
 
 async function _deleteProduct(id) {
-  if (!confirm("Diesen Artikel wirklich löschen?")) return;
+  if (!confirm("Diesen Artikel wirklich löschen? Ein laufendes eBay-Inserat wird dabei beendet.")) return;
   try {
     await apiDelete(`/products/${id}/`);
     if (currentProductId === id) _closeForm();
@@ -224,11 +309,6 @@ async function _deleteProduct(id) {
 }
 
 // --- Product form ---
-
-function _newProduct() {
-  if (currentView !== "active") _selectView("active");
-  _openForm();
-}
 
 function _openForm(product) {
   _fill(product);

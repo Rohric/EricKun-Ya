@@ -2,7 +2,14 @@
 
 from django.contrib import admin
 
-from ebay_app.models import EbayAccount, EbayCategoryMapping, EbayImage, EbayListing, EbayLocation
+from ebay_app.models import (
+    EbayAccount,
+    EbayCategoryMapping,
+    EbayImage,
+    EbayListing,
+    EbayLocation,
+    EbayShippingProfile,
+)
 
 
 @admin.register(EbayAccount)
@@ -27,6 +34,13 @@ class EbayListingAdmin(admin.ModelAdmin):
 
     list_display = ("product", "status", "listing_id", "category_name", "last_synced", "sync_error")
     list_filter = ("status",)
+
+
+@admin.register(EbayShippingProfile)
+class EbayShippingProfileAdmin(admin.ModelAdmin):
+    """Show the shipping profiles and the eBay policy each one stands for."""
+
+    list_display = ("name", "shipping_service", "shipping_cost", "handling_days", "is_default", "policy_id")
 
 
 @admin.register(EbayCategoryMapping)

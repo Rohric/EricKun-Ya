@@ -198,6 +198,37 @@ uncommittet.
 - **Offene Ideen:** mehrere Versandprofile statt einer Vorlage für alle Artikel; Spalte
   „Preis bei eBay" im eBay-Reiter; Hilfetexte zum Ablauf im Frontend.
 
+### Nachtrag 2026-10-06 (später) – Frontend-Umbau und eBay-Ausbau
+
+Plan mit acht Abschnitten (siehe Plan-Datei oben), alle gebaut; Stand der Commits bitte per
+`git status` prüfen – Emil committet selbst.
+
+- **Navigation:** Header nur Dashboard · Artikel · eBay; Bestellungen, Lager, Finanzen über
+  Dashboard-Kacheln (`GET /api/dashboard/summary/`, `core/dashboard.py`).
+- **Artikel:** Reiter nach Status mit Zählern, Kategorie-Filter, Suche, Spalte „Kanäle"
+  (`GET /api/products/counts/`, `GET /api/ebay/listing-states/`).
+- **Bestellungen:** `Order.payment_status`; unbezahlte eBay-Bestellungen werden mit abgeholt
+  und später auf bezahlt gestellt; eBay-Bestellungen lassen sich nur über „Versand melden"
+  verschicken; Filter nach Herkunft, Zahlung, Status.
+- **eBay-Reiter:** sechs Unterreiter (Übersicht, Inserate, Neu inserieren, Vorlagen, Verkäufe,
+  Auswertung).
+- **Versandprofile:** `EbayShippingProfile`, mehrere je Konto, eines Standard; die alte
+  Einzelvorlage wurde per Migration zum Profil „Standard". Zusätzlich existiert „Päckchen"
+  (DHL Päckchen, 3,99 €) als Beispiel.
+- **eBay-Extras:** Preis bei eBay und Verkaufszahl (`services/facts.py`), Preisvorschlag,
+  Gebühren-Vorschau – alle drei echt gegen die Sandbox bestätigt. Die Sandbox zeigt Käufern
+  19 % Aufschlag auf unseren Preis; das wird jetzt sichtbar markiert.
+- **Finanzen:** Verkaufsbericht mit EK/VK, Aufteilung nach Kanal und Kategorie, geschätzter
+  eBay-Gebührensatz (`FinanceSettings.ebay_fee_rate`, Standard 0); unbezahlte Bestellungen
+  zählen nicht als Umsatz.
+- **Simulation:** `simulate_ebay_sale` kennt jetzt `--unpaid` und `--pay`; simulierte
+  Bestellungen lassen sich im Frontend „verschicken", ohne dass eBay gefragt wird.
+- **Migrationen:** `ebay_app` 0004–0006, `orders_app` 0007, `finance_app` 0002 (angewendet).
+- **Geprüft:** alle neuen Endpoints per API gegen eine Kopie der Daten; jede Seite und jeder
+  Unterreiter lädt ohne Konsolenfehler. Den Klick-Test der Oberfläche macht Emil.
+- **Weiter offen:** echter eBay-Verkauf (Abholen, Storno, Versandmeldung), Storno an eBay,
+  echte Gebühren, Production-Schlüssel mit Konto-Löschmeldungen.
+
 ### Danach
 - **Echter Sandbox-Durchlauf:** verbinden → Policies → Lagerort → inserieren → als Buyer
   kaufen → Verkäufe abholen → Versand melden; dabei abgelehnte Payloads korrigieren.

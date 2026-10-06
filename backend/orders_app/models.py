@@ -18,12 +18,17 @@ class Order(models.Model):
         IN_RETURN = "in_return", "In Reklamation"
         CANCELLED = "cancelled", "Storniert"
 
+    class Payment(models.TextChoices):
+        PAID = "paid", "Bezahlt"
+        PENDING = "pending", "Zahlung offen"
+
     sold_at = models.DateTimeField(db_index=True)
     fulfillment_status = models.CharField(
         max_length=16,
         choices=Fulfillment.choices,
         default=Fulfillment.OPEN,
     )
+    payment_status = models.CharField(max_length=8, choices=Payment.choices, default=Payment.PAID)
     tracking_number = models.CharField(max_length=64, blank=True)
     shipping_carrier = models.CharField(max_length=40, blank=True)
     # Buyer / shipping details: entered manually or filled by the eBay order import.

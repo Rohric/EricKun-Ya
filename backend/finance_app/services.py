@@ -29,8 +29,8 @@ def _day_bounds(start, end):
     return lower, upper
 
 
-def _items_in_period(start, end):
-    """Return line items of non-cancelled orders sold within [start, end]."""
+def _sold_items(start, end):
+    """Return line items of non-cancelled orders sold within [start, end], paid or not."""
     lower, upper = _day_bounds(start, end)
     return OrderItem.objects.filter(
         order__sold_at__gte=lower,
@@ -38,16 +38,39 @@ def _items_in_period(start, end):
     ).exclude(order__fulfillment_status=Order.Fulfillment.CANCELLED)
 
 
+def counted_items(start, end):
+    """Return the line items that count as revenue: not cancelled and already paid."""
+    return _sold_items(start, end).filter(order__payment_status=Order.Payment.PAID)
+
+
 def revenue_for_period(start, end):
     """Return total revenue (sale prices) for the given date range."""
-    total = _items_in_period(start, end).aggregate(s=Sum(_REVENUE_EXPR))["s"]
+    total = counted_items(start, end).aggregate(s=Sum(_REVENUE_EXPR))["s"]
     return total or Decimal("0")
+
+
+def pending_revenue_for_period(start, end):
+    """Return the revenue of orders whose payment is still open (not counted as revenue yet)."""
+    pending = _sold_items(start, end).filter(order__payment_status=Order.Payment.PENDING)
+    return pending.aggregate(s=Sum(_REVENUE_EXPR))["s"] or Decimal("0")
+
+
+def estimated_fee(revenue, rate=None):
+    """Return the estimated eBay fee for a revenue amount (rate in percent)."""
+    rate = FinanceSettings.load().ebay_fee_rate if rate is None else rate
+    return (revenue * rate / Decimal("100")).quantize(Decimal("0.01"))
+
+
+def estimated_fees_for_period(start, end):
+    """Return the estimated eBay fees on the period's eBay sales of known products."""
+    ebay_items = counted_items(start, end).filter(order__ebay_order_id__isnull=False, product__isnull=False)
+    return estimated_fee(ebay_items.aggregate(s=Sum(_REVENUE_EXPR))["s"] or Decimal("0"))
 
 
 def profit_for_period(start, end):
-    """Return total gross profit (sale minus purchase) for the given date range."""
-    total = _items_in_period(start, end).aggregate(s=Sum(_PROFIT_EXPR))["s"]
-    return total or Decimal("0")
+    """Return total gross profit (sale minus purchase minus estimated eBay fees) for the range."""
+    total = counted_items(start, end).aggregate(s=Sum(_PROFIT_EXPR))["s"] or Decimal("0")
+    return total - estimated_fees_for_period(start, end)
 
 
 def purchase_expenses_for_period(start, end):
@@ -70,7 +93,9 @@ def financial_summary(start, end):
     reserve = tax_reserve(gross)
     return {
         "revenue": revenue_for_period(start, end),
+        "pending_revenue": pending_revenue_for_period(start, end),
         "expenses": purchase_expenses_for_period(start, end),
+        "estimated_fees": estimated_fees_for_period(start, end),
         "gross_profit": gross,
         "tax_reserve": reserve,
         "net_profit": gross - reserve,
@@ -80,7 +105,7 @@ def financial_summary(start, end):
 def monthly_revenue(year):
     """Return 12 revenue totals (one per month) using a single grouped query."""
     rows = (
-        _items_in_period(date(year, 1, 1), date(year, 12, 31))
+        counted_items(date(year, 1, 1), date(year, 12, 31))
         .annotate(month=TruncMonth("order__sold_at"))
         .values("month")
         .annotate(total=Sum(_REVENUE_EXPR))

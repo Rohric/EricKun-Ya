@@ -11,8 +11,9 @@
   <main class="page">
     <div class="page-head"><h1>Finanzen</h1></div>
     <div id="message" class="message" style="display:none"></div>
+    <div id="finance-tabs"></div>
 
-    <section class="card">
+    <section class="card" id="period-card">
       <div class="period-switch" id="period-switch">
         <button data-period="today">Heute</button>
         <button data-period="month">Monat</button>
@@ -23,89 +24,145 @@
         <label>von<input type="date" id="range-from" /></label>
         <label>bis<input type="date" id="range-to" /></label>
         <button id="apply-range" class="secondary">Zeitraum anwenden</button>
+        <span id="period-label" class="hint"></span>
       </div>
     </section>
 
-    <section class="card tax-card">
-      <h2>Steuerrechnung <span id="tax-period" class="hint"></span></h2>
-      <div class="tax-breakdown">
-        <div class="tax-part">
-          <span class="tax-label">Brutto-Gewinn</span>
-          <span class="tax-value" id="tax-gross">–</span>
+    <!-- Übersicht -->
+    <div class="panel" data-panel="overview">
+      <section class="card tax-card">
+        <h2>Steuerrechnung</h2>
+        <div class="tax-breakdown">
+          <div class="tax-part">
+            <span class="tax-label">Brutto-Gewinn</span>
+            <span class="tax-value" id="tax-gross">–</span>
+          </div>
+          <span class="tax-op">−</span>
+          <div class="tax-part">
+            <span class="tax-label">Rücklage (<span id="tax-rate">–</span>%)</span>
+            <span class="tax-value reserve" id="tax-reserve">–</span>
+          </div>
+          <span class="tax-op">=</span>
+          <div class="tax-part">
+            <span class="tax-label">Netto-Gewinn</span>
+            <span class="tax-value net" id="tax-net">–</span>
+          </div>
         </div>
-        <span class="tax-op">−</span>
-        <div class="tax-part">
-          <span class="tax-label">Rücklage (<span id="tax-rate">–</span>%)</span>
-          <span class="tax-value reserve" id="tax-reserve">–</span>
-        </div>
-        <span class="tax-op">=</span>
-        <div class="tax-part">
-          <span class="tax-label">Netto-Gewinn</span>
-          <span class="tax-value net" id="tax-net">–</span>
-        </div>
-      </div>
-      <p class="hint">Schätzung zur Orientierung – keine Buchhaltung (GoBD). Stornierte Bestellungen zählen nicht mit.</p>
-    </section>
+        <p class="hint" id="fee-note"></p>
+        <p class="hint">
+          Schätzung zur Orientierung – keine Buchhaltung (GoBD). Stornierte Bestellungen und Bestellungen mit
+          offener Zahlung zählen nicht mit.
+        </p>
+      </section>
 
-    <section class="tiles" id="pl-tiles"></section>
+      <section class="tiles" id="pl-tiles"></section>
 
-    <section class="card">
-      <h2>Rücklagensatz</h2>
-      <label class="inline">Satz (%)
-        <input type="number" step="0.01" id="reserve-rate" />
-        <button id="save-reserve">Speichern</button>
-      </label>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <h2>Monatsumsatz</h2>
-        <div class="year-switch">
-          <button type="button" class="secondary" id="year-prev">‹</button>
-          <span id="year-label"></span>
-          <button type="button" class="secondary" id="year-next">›</button>
+      <section class="card">
+        <div class="card-head">
+          <h2>Monatsumsatz</h2>
+          <div class="year-switch">
+            <button type="button" class="secondary" id="year-prev">‹</button>
+            <span id="year-label"></span>
+            <button type="button" class="secondary" id="year-next">›</button>
+          </div>
         </div>
-      </div>
-      <div id="monthly-chart" class="bar-chart"></div>
-    </section>
+        <div id="monthly-chart" class="bar-chart"></div>
+      </section>
+    </div>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>Ziele</h2>
-        <button id="new-goal-btn" class="secondary">+ Ziel</button>
-      </div>
-      <form id="goal-form" class="form-grid" style="display:none">
-        <input type="hidden" id="g-id" />
-        <label>Titel<input type="text" id="g-title" required /></label>
-        <label>Zielbetrag (€)<input type="number" step="0.01" id="g-target" required /></label>
-        <label>Metrik
-          <select id="g-metric">
-            <option value="revenue">Umsatz</option>
-            <option value="profit">Gewinn</option>
-          </select>
-        </label>
-        <label>Periode
-          <select id="g-period">
-            <option value="monthly">Monatlich</option>
-            <option value="yearly" selected>Jährlich</option>
-            <option value="total">Gesamt</option>
-          </select>
-        </label>
-        <label>Start<input type="date" id="g-start" required /></label>
-        <label>Ende (optional)<input type="date" id="g-end" /></label>
-        <div class="form-actions full">
-          <button type="submit">Speichern</button>
-          <button type="button" id="cancel-goal" class="secondary">Abbrechen</button>
+    <!-- Verkäufe -->
+    <div class="panel" data-panel="sales">
+      <section class="card">
+        <h2>Verkäufe mit Einkaufs- und Verkaufspreis</h2>
+        <div class="filter-row">
+          <label>Kategorie<select id="report-category"></select></label>
+          <label>Kanal
+            <select id="report-channel">
+              <option value="">Alle</option>
+              <option value="ebay">eBay</option>
+              <option value="manual">Manuell</option>
+            </select>
+          </label>
         </div>
-      </form>
-      <div id="goals"></div>
-    </section>
+        <div id="sales-report"></div>
+      </section>
+    </div>
+
+    <!-- Aufteilung -->
+    <div class="panel" data-panel="breakdown">
+      <section class="card">
+        <h2>Nach Verkaufskanal</h2>
+        <div id="breakdown-channel"></div>
+      </section>
+      <section class="card">
+        <h2>Nach Kategorie</h2>
+        <div id="breakdown-category"></div>
+      </section>
+    </div>
+
+    <!-- Ziele -->
+    <div class="panel" data-panel="goals">
+      <section class="card">
+        <div class="card-head">
+          <h2>Ziele</h2>
+          <button id="new-goal-btn" class="secondary">+ Ziel</button>
+        </div>
+        <form id="goal-form" class="form-grid" style="display:none">
+          <input type="hidden" id="g-id" />
+          <label>Titel<input type="text" id="g-title" required /></label>
+          <label>Zielbetrag (€)<input type="number" step="0.01" id="g-target" required /></label>
+          <label>Metrik
+            <select id="g-metric">
+              <option value="revenue">Umsatz</option>
+              <option value="profit">Gewinn</option>
+            </select>
+          </label>
+          <label>Periode
+            <select id="g-period">
+              <option value="monthly">Monatlich</option>
+              <option value="yearly" selected>Jährlich</option>
+              <option value="total">Gesamt</option>
+            </select>
+          </label>
+          <label>Start<input type="date" id="g-start" required /></label>
+          <label>Ende (optional)<input type="date" id="g-end" /></label>
+          <div class="form-actions full">
+            <button type="submit">Speichern</button>
+            <button type="button" id="cancel-goal" class="secondary">Abbrechen</button>
+          </div>
+        </form>
+        <div id="goals"></div>
+      </section>
+    </div>
+
+    <!-- Einstellungen -->
+    <div class="panel" data-panel="settings">
+      <section class="card">
+        <h2>Sätze</h2>
+        <form id="settings-form" class="form-grid">
+          <label>Rücklagensatz für Steuern (%)
+            <input type="number" step="0.01" min="0" max="100" id="reserve-rate" required />
+          </label>
+          <label>Geschätzter eBay-Gebührensatz (%)
+            <input type="number" step="0.01" min="0" max="100" id="fee-rate" required />
+          </label>
+          <p class="hint full">
+            Der Gebührensatz ist eine Schätzung: Er wird vom Gewinn aller eBay-Verkäufe abgezogen, bis die echten
+            Gebühren von eBay eingebunden sind. 0 schaltet die Schätzung aus.
+          </p>
+          <div class="form-actions full">
+            <button type="submit">Speichern</button>
+          </div>
+        </form>
+      </section>
+    </div>
   </main>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/sales-report.js"></script>
   <script src="js/finances.js"></script>
 </body>
 </html>

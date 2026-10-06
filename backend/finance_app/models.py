@@ -32,9 +32,11 @@ class Goal(models.Model):
 
 
 class FinanceSettings(models.Model):
-    """Singleton holding the adjustable tax-reserve rate in percent."""
+    """Singleton holding the adjustable tax-reserve rate and the estimated eBay fee rate (percent)."""
 
     tax_reserve_rate = models.DecimalField(max_digits=5, decimal_places=2, default=25)
+    # Estimate only: the real fees would come from eBay's Finances API.
+    ebay_fee_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     def __str__(self):
         """Return a readable label for admin and shell."""

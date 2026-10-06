@@ -26,11 +26,36 @@ class GoalSerializer(serializers.ModelSerializer):
 
 
 class FinanceSettingsSerializer(serializers.ModelSerializer):
-    """Serialize the adjustable finance settings."""
+    """Serialize the adjustable finance settings (both rates are percentages)."""
 
     class Meta:
         model = FinanceSettings
-        fields = ["tax_reserve_rate"]
+        fields = ["tax_reserve_rate", "ebay_fee_rate"]
+        extra_kwargs = {
+            "tax_reserve_rate": {"min_value": 0, "max_value": 100},
+            "ebay_fee_rate": {"min_value": 0, "max_value": 100},
+        }
+
+
+class SalesFilterSerializer(serializers.Serializer):
+    """Validate the optional ?category= and ?channel= filters of the sales report."""
+
+    category = serializers.IntegerField(required=False, min_value=1, error_messages={"invalid": "Ungültige Kategorie."})
+    channel = serializers.ChoiceField(
+        choices=["ebay", "manual"],
+        required=False,
+        error_messages={"invalid_choice": "Unbekannter Kanal. Erlaubt: ebay, manual."},
+    )
+
+
+class BreakdownSerializer(serializers.Serializer):
+    """Validate the ?by= parameter of the breakdown report."""
+
+    by = serializers.ChoiceField(
+        choices=["channel", "category"],
+        default="channel",
+        error_messages={"invalid_choice": "Unbekannte Aufteilung. Erlaubt: channel, category."},
+    )
 
 
 class ReportRangeSerializer(serializers.Serializer):

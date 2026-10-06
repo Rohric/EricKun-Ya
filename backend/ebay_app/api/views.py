@@ -7,7 +7,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.pagination import OptionalPagePagination
-from ebay_app.services import account, listings, locations, oauth, orders, overview, taxonomy
+from ebay_app.models import EbayShippingProfile
+from ebay_app.services import (
+    account,
+    facts,
+    listings,
+    locations,
+    oauth,
+    orders,
+    overview,
+    shipping_profiles,
+    taxonomy,
+)
 from orders_app.api.serializers import OrderSerializer
 from orders_app.models import Order
 from products_app.models import Product
@@ -18,6 +29,7 @@ from .serializers import (
     PolicyFormSerializer,
     PublishSerializer,
     ShipmentSerializer,
+    ShippingProfileSerializer,
 )
 
 NO_QUERY = "Bitte einen Suchbegriff angeben (?q=)."
@@ -28,6 +40,15 @@ def _listing_response(pk):
     product = listings.listing_products().get(pk=pk)
     return Response(ListingProductSerializer(product).data)
 
+
+def _publish_arguments(request):
+    """Validate the listing dialog's data and return (category, aspects, options)."""
+    serializer = PublishSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.listing_arguments()
+
+
+# --- Connection ---
 
 class EbayStatusView(APIView):
     """Return the connection, setup and readiness state."""
@@ -73,6 +94,8 @@ class DisconnectView(APIView):
         return Response(overview.connection_status())
 
 
+# --- Templates: shipping profiles, return/payment policy, location ---
+
 class ShippingServicesView(APIView):
     """List the domestic shipping services eBay offers on the marketplace."""
 
@@ -83,18 +106,68 @@ class ShippingServicesView(APIView):
         return Response(account.shipping_services())
 
 
+class ShippingProfileList(generics.ListCreateAPIView):
+    """
+    List the shipping profiles or create a new one.
+
+    - GET: all profiles with the number of listings that use them.
+    - POST: create the profile and its shipping policy on eBay.
+    """
+
+    serializer_class = ShippingProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Return the profiles, with details adopted from eBay where they are still missing."""
+        return shipping_profiles.list_profiles()
+
+    def perform_create(self, serializer):
+        """Create the eBay policy first, then store the profile."""
+        serializer.instance = shipping_profiles.save_profile(EbayShippingProfile(), serializer.validated_data)
+
+
+class ShippingProfileDetail(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, change or delete one shipping profile (always together with its eBay policy)."""
+
+    serializer_class = ShippingProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Return the profiles with their listing count."""
+        return shipping_profiles.list_profiles()
+
+    def perform_update(self, serializer):
+        """Update the eBay policy, then the profile."""
+        shipping_profiles.save_profile(serializer.instance, serializer.validated_data)
+
+    def perform_destroy(self, instance):
+        """Delete the profile unless it is the default or still in use."""
+        shipping_profiles.delete_profile(instance)
+
+
+class ShippingProfileDefaultView(APIView):
+    """Make one shipping profile the default."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Set the default profile and return it."""
+        profile = generics.get_object_or_404(EbayShippingProfile, pk=pk)
+        return Response(ShippingProfileSerializer(shipping_profiles.set_default(profile)).data)
+
+
 class PoliciesView(APIView):
     """
-    Read or save the shipping, return and payment policies.
+    Read or save the return and payment policy.
 
-    - GET: current values for pre-filling the form.
-    - PUT: create or update all three policies on eBay.
+    - GET: current return values for pre-filling the form.
+    - PUT: create or update both policies on eBay.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Return the current policy values."""
+        """Return the current return policy values."""
         return Response(account.current_policies())
 
     def put(self, request):
@@ -115,6 +188,8 @@ class LocationSyncView(APIView):
         locations.sync_default_location()
         return Response(overview.connection_status())
 
+
+# --- Categories ---
 
 class CategorySuggestionsView(APIView):
     """Suggest eBay categories for a product title."""
@@ -140,32 +215,53 @@ class CategoryRequirementsView(APIView):
         return Response(listings.requirements(category_id, product_id))
 
 
+# --- Listings ---
+
 class ListingList(generics.ListAPIView):
-    """List the sellable products with the state of their eBay listing."""
+    """List products with the state of their eBay listing; ?scope=all|listed|unlisted."""
 
     serializer_class = ListingProductSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = OptionalPagePagination
 
     def get_queryset(self):
-        """Return the products that are not sold or archived."""
-        return listings.active_listing_products()
+        """Return the products of the requested scope (default: all sellable products)."""
+        return listings.products_in_scope(self.request.query_params.get("scope", ""))
+
+
+class ListingStatesView(APIView):
+    """Tell the product page on which channels each product is listed."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return {product id: [channel entries]} for all listed products."""
+        return Response(listings.channel_states())
 
 
 class ListingPublishView(APIView):
-    """Put a product online on eBay with the chosen category and aspects."""
+    """Put a product online on eBay with the chosen category, aspects and options."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        """Store category and aspects, transfer the product and publish its offer."""
+        """Store the choices, transfer the product and publish its offer."""
         product = generics.get_object_or_404(Product, pk=pk)
-        serializer = PublishSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        category = {"id": data["category_id"], "name": data["category_name"]}
-        listings.publish(product, category, data["aspects"])
+        category, aspects, options = _publish_arguments(request)
+        listings.publish(product, category, aspects, **options)
         return _listing_response(pk)
+
+
+class ListingPreviewView(APIView):
+    """Show eBay's expected listing fees before a product goes online."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """Transfer item and offer unpublished and return the fees eBay calculates."""
+        product = generics.get_object_or_404(Product, pk=pk)
+        category, aspects, options = _publish_arguments(request)
+        return Response(listings.preview(product, category, aspects, **options))
 
 
 class ListingSyncView(APIView):
@@ -200,13 +296,25 @@ class ListingSyncAllView(APIView):
         return Response(listings.sync_all())
 
 
+class ListingRefreshView(APIView):
+    """Read the buyer-facing price and the sold quantity of all online listings back from eBay."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Refresh the eBay facts and return how many listings succeeded and failed."""
+        return Response(facts.refresh_all())
+
+
+# --- Sales ---
+
 class OrderImportView(APIView):
     """Fetch new and changed sales from eBay."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        """Import eBay orders and return the counts of created and cancelled orders."""
+        """Import eBay orders and return the counts of created, paid and cancelled orders."""
         return Response(orders.import_orders())
 
 

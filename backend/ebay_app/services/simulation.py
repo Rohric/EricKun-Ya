@@ -9,10 +9,10 @@ from rest_framework.exceptions import APIException
 
 from ebay_app.models import EbayListing
 from ebay_app.services import listings, orders
+from ebay_app.services.orders import SIMULATED_PREFIX
 from orders_app.models import Order
 from products_app.models import Product
 
-SIMULATED_PREFIX = "SIM-"
 BUYERS = [
     {"username": "testuser_buyer-edwin", "name": "Edwin Beispiel", "street": "Kaufweg 5", "zip": "10115", "city": "Berlin"},
     {"username": "testuser_buyer-mara", "name": "Mara Muster", "street": "Hafenstraße 12", "zip": "20457", "city": "Hamburg"},
@@ -25,37 +25,47 @@ NOT_SIMULATED = "Bestellung {pk} ist keine simulierte eBay-Bestellung."
 
 
 class SimulationError(Exception):
-    """A simulated sale or cancellation cannot be carried out."""
+    """A simulated sale, payment or cancellation cannot be carried out."""
 
 
-def simulate_sale(sku, quantity=1):
-    """Create an order as if eBay had reported a paid sale of the product; return the order."""
+def simulate_sale(sku, quantity=1, paid=True):
+    """Create an order as if eBay had reported a sale of the product; return the order."""
     _require_sandbox()
     product = _product_with_stock(sku, quantity)
-    payload = sale_payload(product, quantity)
+    payload = sale_payload(product, quantity, paid)
     orders.import_payloads([payload])
     _push_remaining_stock(product)
     return Order.objects.get(ebay_order_id=payload["orderId"])
 
 
+def simulate_payment(order_pk):
+    """Mark a simulated order as paid, as if eBay had reported the payment; return the order."""
+    return _report_change(order_pk, {"orderPaymentStatus": "PAID", "cancelStatus": {"cancelState": "NONE_REQUESTED"}})
+
+
 def simulate_cancellation(order_pk):
     """Cancel a simulated order as if eBay had reported the cancellation; return the order."""
+    return _report_change(order_pk, {"cancelStatus": {"cancelState": "CANCELED"}})
+
+
+def _report_change(order_pk, change):
+    """Send a follow-up payload for a simulated order through the normal import."""
     _require_sandbox()
     order = Order.objects.filter(pk=order_pk, ebay_order_id__startswith=SIMULATED_PREFIX).first()
     if order is None:
         raise SimulationError(NOT_SIMULATED.format(pk=order_pk))
-    orders.import_payloads([{"orderId": order.ebay_order_id, "cancelStatus": {"cancelState": "CANCELED"}}])
+    orders.import_payloads([{"orderId": order.ebay_order_id, **change}])
     order.refresh_from_db()
     return order
 
 
-def sale_payload(product, quantity):
+def sale_payload(product, quantity, paid=True):
     """Build an order in the shape of eBay's getOrders response for one product."""
     buyer = random.choice(BUYERS)
     return {
         "orderId": f"{SIMULATED_PREFIX}{timezone.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2).upper()}",
         "creationDate": timezone.now().isoformat(),
-        "orderPaymentStatus": "PAID",
+        "orderPaymentStatus": "PAID" if paid else "PENDING",
         "orderFulfillmentStatus": "NOT_STARTED",
         "cancelStatus": {"cancelState": "NONE_REQUESTED"},
         "buyer": {"username": buyer["username"]},

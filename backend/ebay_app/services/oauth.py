@@ -5,6 +5,7 @@ from datetime import timedelta
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -15,6 +16,7 @@ from ebay_app.models import EbayAccount
 TOKEN_PATH = "/identity/v1/oauth2/token"
 STATE_LIFETIME = timedelta(minutes=10)
 REFRESH_MARGIN = timedelta(seconds=60)
+APP_TOKEN_MARGIN = 300  # seconds an application token is dropped from the cache before it expires
 NO_CODE = "In der Adresse steht kein eBay-Code. Bitte die komplette Adresse aus der Browserleiste einfügen."
 BAD_STATE = "Die Anmeldung ist abgelaufen oder passt nicht. Bitte erneut „Mit eBay verbinden“ klicken."
 
@@ -112,6 +114,18 @@ def _refresh(account):
 def call(method, path, **kwargs):
     """Call the eBay API on behalf of the connected seller."""
     return client.request(method, path, access_token=get_access_token(), **kwargs)
+
+
+def get_app_token():
+    """Return an application token for public data (e.g. the buyer's view), cached until it expires."""
+    key = f"ebay-app-token-{settings.EBAY_ENV}"
+    token = cache.get(key)
+    if token:
+        return token
+    client.require_credentials()
+    tokens = _token_request({"grant_type": "client_credentials", "scope": client.SCOPES[0]})
+    cache.set(key, tokens["access_token"], max(tokens.get("expires_in", 7200) - APP_TOKEN_MARGIN, 60))
+    return tokens["access_token"]
 
 
 def disconnect():

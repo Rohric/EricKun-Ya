@@ -1,59 +1,122 @@
 "use strict";
 
-// Listings section of the eBay tab: status per product, publish dialog, sync and withdraw.
-// loadListings() is called by ebay.js after every status refresh.
+// eBay tab, panels "Inserate" and "Neu inserieren": listing tables, row actions and the
+// publish dialog. loadListings() / loadUnlisted() are called by ebay.js.
 
-const LISTING_STATES = {
-  none: "Nicht inseriert", draft: "Entwurf", online: "Online",
-  changed: "Geändert", ended: "Beendet", error: "Fehler",
-};
+const TITLE_MAX = 80;
 
-let listingProducts = [];
+let listedProducts = [];
+let unlistedProducts = [];
+let shippingProfiles = [];
 let publishProduct = null;   // product the publish dialog is open for
 let categoryOptions = [];    // categories offered in the dialog
 
 document.getElementById("sync-all-btn").addEventListener("click", _syncAll);
+document.getElementById("refresh-facts-btn").addEventListener("click", _refreshFacts);
 document.getElementById("cat-search-btn").addEventListener("click", _searchCategories);
 document.getElementById("publish-form").addEventListener("submit", _submitPublish);
 document.getElementById("publish-abort").addEventListener("click", _closePublish);
+document.getElementById("fee-btn").addEventListener("click", _previewFees);
 document.getElementById("cat-query").addEventListener("keydown", _searchOnEnter);
 
-// --- Table ---
+// --- Panel "Inserate" ---
 
-async function loadListings(status) {
-  document.getElementById("listings-card").classList.toggle("disabled", !status.ready);
-  listingProducts = await apiGet("/ebay/listings/");
-  _renderListings();
-}
-
-async function _reloadListings() {
-  listingProducts = await apiGet("/ebay/listings/");
-  _renderListings();
-}
-
-function _renderListings() {
-  const rows = listingProducts.map(_listingRow).join("");
+async function loadListings() {
+  listedProducts = await apiGet("/ebay/listings/?scope=listed");
+  const rows = listedProducts.map(_listingRow).join("");
   document.getElementById("listing-rows").innerHTML =
-    rows || `<tr><td colspan="7" class="empty">Noch keine verkaufbaren Artikel.</td></tr>`;
-  _bindListingActions();
+    rows || `<tr><td colspan="10" class="empty">Noch nichts inseriert – siehe Reiter „Neu inserieren“.</td></tr>`;
+  _bindActions("listing-rows", listedProducts);
 }
 
 function _listingRow(product) {
   const listing = product.listing;
-  const state = listing ? listing.state : "none";
-  const thumb = product.image
-    ? `<img class="thumb" src="${escapeHtml(product.image)}" alt="" />`
-    : `<span class="no-thumb">–</span>`;
   return `
     <tr>
-      <td>${thumb}</td>
-      <td><strong>${escapeHtml(product.title)}</strong><br><span class="hint">${escapeHtml(product.sku)}</span></td>
+      <td>${_thumb(product)}</td>
+      <td>${_titleCell(product)}</td>
       <td>${formatEuro(product.sale_price)}</td>
+      <td>${_ebayPrice(product)}</td>
       <td>${product.quantity}</td>
-      <td><span class="badge badge-listing-${state}">${LISTING_STATES[state]}</span>${_errorLine(listing)}</td>
-      <td>${listing ? escapeHtml(listing.category_name) : "–"}</td>
+      <td>${product.sold_units}</td>
+      <td>${_stateBadge(listing)}${_errorLine(listing)}</td>
+      <td>${escapeHtml(listing.category_name) || "–"}</td>
+      <td>${escapeHtml(listing.shipping_profile_name) || "Standard"}${listing.best_offer ? '<span class="row-note">Preisvorschlag</span>' : ""}</td>
       <td class="actions">${_listingActions(product)}</td>
     </tr>`;
+}
+
+// The price eBay shows to buyers; highlighted when it differs from our own price.
+function _ebayPrice(product) {
+  const price = product.listing.ebay_price;
+  if (price == null) return "–";
+  if (Number(price) === Number(product.sale_price)) return formatEuro(price);
+  const title = `eBay zeigt dem Käufer ${formatEuro(price)}, dein Preis ist ${formatEuro(product.sale_price)}.`;
+  return `<span class="price-diff" title="${escapeHtml(title)}">${formatEuro(price)}</span>`;
+}
+
+// Offer the actions that make sense for the stored listing status.
+function _listingActions(product) {
+  const listing = product.listing;
+  const edit = _actionButton(product, "publish", "Bearbeiten");
+  if (listing.status === "ended") {
+    const sellable = product.status === "available" && product.quantity > 0;
+    return sellable ? _actionButton(product, "sync", "Wieder einstellen") + edit : '<span class="hint">nicht verkaufbar</span>';
+  }
+  const view = listing.url
+    ? `<a class="link-btn" href="${escapeHtml(listing.url)}" target="_blank" rel="noopener">Ansehen</a>`
+    : "";
+  return _actionButton(product, "sync", "Synchronisieren") + edit + _actionButton(product, "withdraw", "Beenden", "danger") + view;
+}
+
+// --- Panel "Neu inserieren" ---
+
+async function loadUnlisted() {
+  unlistedProducts = await apiGet("/ebay/listings/?scope=unlisted");
+  const rows = unlistedProducts.map(_unlistedRow).join("");
+  document.getElementById("unlisted-rows").innerHTML =
+    rows || `<tr><td colspan="7" class="empty">Alle verkaufbaren Artikel sind bereits inseriert.</td></tr>`;
+  _bindActions("unlisted-rows", unlistedProducts);
+}
+
+function _unlistedRow(product) {
+  return `
+    <tr>
+      <td>${_thumb(product)}</td>
+      <td>${_titleCell(product)}</td>
+      <td>${escapeHtml(product.category_path) || "–"}</td>
+      <td>${formatEuro(product.sale_price)}</td>
+      <td>${product.quantity}</td>
+      <td>${_problemHints(product)}${_errorLine(product.listing)}</td>
+      <td class="actions">${_actionButton(product, "publish", "Inserieren")}</td>
+    </tr>`;
+}
+
+// What eBay would reject right away, so it can be fixed before opening the dialog.
+function _problemHints(product) {
+  const problems = [];
+  if (!product.image) problems.push("kein Bild");
+  if (product.title.length > TITLE_MAX) problems.push(`Titel zu lang (${product.title.length}/${TITLE_MAX})`);
+  if (product.status !== "available") problems.push("nicht verfügbar");
+  if (!problems.length) return product.listing ? '<span class="hint">Entwurf</span>' : '<span class="hint">bereit</span>';
+  return `<span class="row-error">${problems.join(", ")}</span>`;
+}
+
+// --- Shared row pieces ---
+
+function _thumb(product) {
+  return product.image
+    ? `<img class="thumb" src="${escapeHtml(product.image)}" alt="" />`
+    : `<span class="no-thumb">–</span>`;
+}
+
+function _titleCell(product) {
+  return `<strong>${escapeHtml(product.title)}</strong><br><span class="hint">${escapeHtml(product.sku)}</span>`;
+}
+
+function _stateBadge(listing) {
+  const state = listing ? listing.state : "none";
+  return `<span class="badge badge-listing-${state}">${LISTING_STATE_LABELS[state]}</span>`;
 }
 
 function _errorLine(listing) {
@@ -61,48 +124,47 @@ function _errorLine(listing) {
   return `<span class="row-error">${escapeHtml(listing.sync_error)}</span>`;
 }
 
-// Offer the actions that make sense for the stored listing status.
-function _listingActions(product) {
-  const listing = product.listing;
-  const button = (action, label, extra = "") =>
-    `<button type="button" class="link-btn ${extra}" data-${action}="${product.id}">${label}</button>`;
-  if (!listing || listing.status === "draft") return button("publish", "Inserieren");
-  if (listing.status === "ended") return button("sync", "Wieder einstellen") + button("publish", "Merkmale");
-  const view = listing.url
-    ? `<a class="link-btn" href="${escapeHtml(listing.url)}" target="_blank" rel="noopener">Ansehen</a>`
-    : "";
-  return button("sync", "Synchronisieren") + button("publish", "Merkmale")
-    + button("withdraw", "Beenden", "danger") + view;
+function _actionButton(product, action, label, extra = "") {
+  return `<button type="button" class="link-btn ${extra}" data-${action}="${product.id}">${label}</button>`;
 }
 
-function _bindListingActions() {
-  const bind = (action, handler) => document.querySelectorAll(`[data-${action}]`).forEach((btn) =>
+function _bindActions(tableId, products) {
+  const table = document.getElementById(tableId);
+  const bind = (action, handler) => table.querySelectorAll(`[data-${action}]`).forEach((btn) =>
     btn.addEventListener("click", () => handler(Number(btn.getAttribute(`data-${action}`))))
   );
-  bind("publish", (id) => _openPublish(listingProducts.find((p) => p.id === id)));
+  bind("publish", (id) => _openPublish(products.find((p) => p.id === id)));
   bind("sync", (id) => _runAction(id, "sync", "Inserat ist auf dem aktuellen Stand."));
   bind("withdraw", _withdraw);
 }
 
-// --- Row actions ---
-
-// Show feedback inside the listings card, because the page message is out of view down here.
-function _listingMessage(text, isError = true) {
-  const box = document.getElementById("listing-message");
-  box.textContent = text;
-  box.className = isError ? "message error" : "message success";
-  box.style.display = text ? "block" : "none";
+// Show feedback inside the active panel, because the page message is out of view down here.
+function _panelMessage(text, isError = true) {
+  ["listing-message", "unlisted-message"].forEach((id) => {
+    const box = document.getElementById(id);
+    box.textContent = text;
+    box.className = isError ? "message error" : "message success";
+    box.style.display = text ? "block" : "none";
+  });
 }
 
+// Reload both tables and the counters in the tab shell.
+function _reloadListings() {
+  return refresh().catch(() => {});
+}
+
+// --- Row actions ---
+
 async function _runAction(id, action, successText) {
-  _listingMessage("Wird an eBay übertragen …", false);
+  _panelMessage("Wird an eBay übertragen …", false);
+  let failure = "";
   try {
     await apiSend(`/ebay/listings/${id}/${action}/`, "POST", {});
-    _listingMessage(successText, false);
   } catch (err) {
-    _listingMessage(errorText(err));
+    failure = errorText(err);
   }
-  await _reloadListings().catch(() => {});
+  await _reloadListings();
+  _panelMessage(failure || successText, Boolean(failure));
 }
 
 function _withdraw(id) {
@@ -111,34 +173,69 @@ function _withdraw(id) {
 }
 
 async function _syncAll() {
-  _listingMessage("Wird an eBay übertragen …", false);
+  await _runBulk("/ebay/listings/sync-all/", (result) =>
+    result.synced + result.failed
+      ? [`${result.synced} synchronisiert, ${result.failed} fehlgeschlagen.`, result.failed > 0]
+      : ["Alle Inserate sind aktuell.", false]
+  );
+}
+
+async function _refreshFacts() {
+  await _runBulk("/ebay/listings/refresh/", (result) =>
+    [`${result.refreshed} Inserate von eBay aktualisiert${result.failed ? `, ${result.failed} fehlgeschlagen` : ""}.`, result.failed > 0]
+  );
+}
+
+// Run an action over all listings and report its summary.
+async function _runBulk(path, describe) {
+  _panelMessage("Wird mit eBay abgeglichen …", false);
+  let outcome;
   try {
-    const result = await apiSend("/ebay/listings/sync-all/", "POST", {});
-    const text = `${result.synced} synchronisiert, ${result.failed} fehlgeschlagen.`;
-    _listingMessage(result.synced + result.failed ? text : "Alle Inserate sind aktuell.", result.failed > 0);
+    outcome = describe(await apiSend(path, "POST", {}));
   } catch (err) {
-    _listingMessage(errorText(err));
+    outcome = [errorText(err), true];
   }
-  await _reloadListings().catch(() => {});
+  await _reloadListings();
+  _panelMessage(outcome[0], outcome[1]);
 }
 
 // --- Publish dialog ---
 
-function _openPublish(product) {
+async function _openPublish(product) {
   publishProduct = product;
-  document.getElementById("publish-title").textContent = `„${product.title}“ bei eBay inserieren`;
+  const online = Boolean(product.listing) && product.listing.status === "online";
+  document.getElementById("publish-title").textContent = `„${product.title}“ ${online ? "bearbeiten" : "bei eBay inserieren"}`;
+  document.getElementById("publish-submit").textContent = online ? "Speichern und übertragen" : "Jetzt inserieren";
+  document.getElementById("fee-btn").style.display = online ? "none" : "inline-block";
   document.getElementById("cat-query").value = product.title;
   document.getElementById("aspect-fields").innerHTML = "";
-  _setHint("");
+  document.getElementById("publish-best-offer").checked = Boolean(product.listing && product.listing.best_offer);
+  _setText("condition-hint", "");
+  _setText("fee-result", "");
   _publishMessage("");
   _showCategories([], false);
   document.getElementById("publish-modal").style.display = "flex";
+  await _fillProfiles(product);
   _searchCategories();  // lists the known category first and loads its aspects
 }
 
 function _closePublish() {
   publishProduct = null;
   document.getElementById("publish-modal").style.display = "none";
+}
+
+// Shipping profile dropdown; the product's current profile (or the default) is selected.
+async function _fillProfiles(product) {
+  shippingProfiles = await apiGet("/ebay/shipping-profiles/").catch(() => []);
+  const select = document.getElementById("publish-profile");
+  select.innerHTML = "";
+  shippingProfiles.forEach((profile) => {
+    const label = `${profile.name} – ${formatEuro(profile.shipping_cost)}${profile.is_default ? " (Standard)" : ""}`;
+    select.appendChild(new Option(label, profile.id));
+  });
+  const current = product.listing && product.listing.shipping_profile;
+  const fallback = shippingProfiles.find((profile) => profile.is_default);
+  select.value = current || (fallback ? fallback.id : "");
 }
 
 // Category already used for this product, or remembered for its internal category.
@@ -154,10 +251,10 @@ function _publishMessage(text) {
   box.style.display = text ? "block" : "none";
 }
 
-function _setHint(text) {
-  const hint = document.getElementById("condition-hint");
-  hint.textContent = text;
-  hint.style.display = text ? "block" : "none";
+function _setText(id, text) {
+  const element = document.getElementById(id);
+  element.textContent = text;
+  element.style.display = text ? "block" : "none";
 }
 
 function _searchOnEnter(e) {
@@ -211,7 +308,7 @@ async function _loadRequirements(categoryId) {
   box.textContent = "Merkmale werden geladen …";
   try {
     const data = await apiGet(`/ebay/categories/${encodeURIComponent(categoryId)}/requirements/?product=${publishProduct.id}`);
-    _setHint(data.condition_hint);
+    _setText("condition-hint", data.condition_hint);
     _renderAspects(data.aspects);
   } catch (err) {
     box.textContent = "";
@@ -284,26 +381,64 @@ function _collectAspects() {
   return aspects;
 }
 
+// Everything the dialog sends; null if no category is chosen yet.
+function _publishPayload() {
+  const chosen = document.querySelector('input[name="ebay-category"]:checked');
+  if (!chosen) return null;
+  const category = categoryOptions[Number(chosen.value)];
+  const profile = inputValue("publish-profile");
+  return {
+    category_id: category.id,
+    category_name: category.path,
+    aspects: _collectAspects(),
+    shipping_profile: profile ? Number(profile) : null,
+    best_offer: document.getElementById("publish-best-offer").checked,
+  };
+}
+
 async function _submitPublish(e) {
   e.preventDefault();
-  const chosen = document.querySelector('input[name="ebay-category"]:checked');
-  if (!chosen) return _publishMessage("Bitte eine eBay-Kategorie auswählen.");
-  const category = categoryOptions[Number(chosen.value)];
-  const payload = { category_id: category.id, category_name: category.path, aspects: _collectAspects() };
-  _setPublishing(true);
+  const payload = _publishPayload();
+  if (!payload) return _publishMessage("Bitte eine eBay-Kategorie auswählen.");
+  _setBusy("publish-submit", true);
+  let published = false;
   try {
     await apiSend(`/ebay/listings/${publishProduct.id}/publish/`, "POST", payload);
-    _closePublish();
-    _listingMessage("Artikel ist bei eBay online.", false);
+    published = true;
   } catch (err) {
     _publishMessage(errorText(err));
   }
-  _setPublishing(false);
-  await _reloadListings().catch(() => {});
+  _setBusy("publish-submit", false);
+  if (published) _closePublish();
+  await _reloadListings();
+  if (published) _panelMessage("Artikel ist bei eBay online – siehe Reiter „Inserate“.", false);
 }
 
-function _setPublishing(busy) {
-  const button = document.getElementById("publish-submit");
+// Ask eBay what listing this article would cost, without publishing it.
+async function _previewFees() {
+  const payload = _publishPayload();
+  if (!payload) return _publishMessage("Bitte eine eBay-Kategorie auswählen.");
+  if (!document.getElementById("publish-form").reportValidity()) return;
+  _setBusy("fee-btn", true);
+  try {
+    const data = await apiSend(`/ebay/listings/${publishProduct.id}/preview/`, "POST", payload);
+    _setText("fee-result", _feeText(data));
+    _publishMessage("");
+  } catch (err) {
+    _publishMessage(errorText(err));
+  }
+  _setBusy("fee-btn", false);
+}
+
+function _feeText(data) {
+  if (!data.fees.length) return "eBay berechnet für dieses Inserat keine Einstellgebühren (Verkaufsprovision fällt erst beim Verkauf an).";
+  const parts = data.fees.map((fee) => `${fee.type}: ${formatEuro(fee.amount)}`).join(" · ");
+  return `Einstellgebühren laut eBay: ${formatEuro(data.total)} (${parts}).`;
+}
+
+function _setBusy(buttonId, busy) {
+  const button = document.getElementById(buttonId);
+  if (busy) button.dataset.label = button.textContent;
   button.disabled = busy;
-  button.textContent = busy ? "Wird übertragen …" : "Jetzt inserieren";
+  button.textContent = busy ? "Wird übertragen …" : button.dataset.label;
 }

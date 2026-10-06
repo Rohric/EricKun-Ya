@@ -29,9 +29,12 @@ Kategorien, Verkaufsstatus, Archiv und Bildern. Enthält **kein** eBay-Wissen.
 ## Services / Logik
 
 - `utils.generate_sku()` – kollisionsfreie SKU
+- `utils.filter_products()` – Filter der Liste nach Status, Kategorie (inkl. Unterkategorien)
+  und Suchtext (Titel oder SKU); ungültige Werte liefern 400 mit deutscher Meldung
+- `utils.status_counts()` – Anzahl je Status für die Reiter der Artikelseite
 - `signals.py` – löscht Bilddateien beim Löschen/Ersetzen und den ganzen SKU-Ordner beim
   Löschen des Artikels
-- Archiv = Status `sold` oder `archived`; die Liste filtert per `?view=`
+- Archiv = Status `sold` oder `archived`; die Liste filtert per `?view=` oder genauer per `?status=`
 - Bestand und „verkauft" bucht `orders_app` automatisch (siehe dort)
 - Listen laden Kategorie, Oberkategorie und Bilder vorab (`select_related` /
   `prefetch_related`) → konstante Query-Anzahl, egal wie viele Artikel
@@ -42,7 +45,8 @@ Kategorien, Verkaufsstatus, Archiv und Bildern. Enthält **kein** eBay-Wissen.
 |---|---|---|
 | GET / POST | `/api/categories/` | Kategorien auflisten / anlegen |
 | GET / PUT / PATCH / DELETE | `/api/categories/<id>/` | Einzelne Kategorie |
-| GET / POST | `/api/products/` | Artikel; `?view=active` (Default) \| `archive` \| `all`, optional `?page=N` |
+| GET / POST | `/api/products/` | Artikel; `?view=active` (Default) \| `archive` \| `all` oder `?status=available\|reserved\|sold\|archived`; dazu `?category=<id>`, `?search=<text>`, optional `?page=N` |
+| GET | `/api/products/counts/` | Anzahl je Status plus `all`; berücksichtigt `?category=` und `?search=` |
 | GET / PUT / PATCH / DELETE | `/api/products/<id>/` | Einzelner Artikel |
 | GET / POST | `/api/products/<id>/images/` | Bilder auflisten / hochladen (multipart, Feld `image`) |
 | DELETE | `/api/product-images/<id>/` | Einzelnes Bild löschen |
@@ -51,12 +55,14 @@ Kategorien, Verkaufsstatus, Archiv und Bildern. Enthält **kein** eBay-Wissen.
 
 - **`orders_app`**: `OrderItem.product` (FK, `SET_NULL`); bucht Bestand und Status.
 - **`finance_app`**: liest `purchase_price` / `purchase_date` für Einkauf und Gewinn.
-- **`ebay_app`** (geplant): `EbayListing` als OneToOne zu `Product`.
+- **`ebay_app`**: hängt `EbayListing` (OneToOne zu `Product`), gehostete Bilder und die
+  Kategorie-Merkliste an; reagiert über Signals auf Artikel-Änderungen. Wo ein Artikel
+  inseriert ist, liefert `GET /api/ebay/listing-states/` – `products_app` kennt die Kanäle nicht.
 
 ## Dateien
 
 - `models.py` – `Category`, `Product`, `ProductImage`
-- `utils.py` – `generate_sku()`
+- `utils.py` – `generate_sku()`, `filter_products()`, `status_counts()`
 - `signals.py` – Aufräumen der Bilddateien
 - `apps.py` – registriert die Signals in `ready()`
 - `api/serializers.py`, `api/views.py`, `api/urls.py` – API

@@ -8,6 +8,8 @@ from rest_framework import serializers
 from orders_app.models import Cancellation, Order, OrderItem
 from orders_app.services import sync_stock
 
+SHIP_VIA_MARKETPLACE = "Diese Bestellung stammt von eBay. Bitte den Versand über „Versand melden“ an eBay übertragen."
+
 
 class CancelSerializer(serializers.Serializer):
     """Validate what happens to the products and why an order is cancelled."""
@@ -58,7 +60,7 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "sold_at", "fulfillment_status", "tracking_number", "shipping_carrier",
+            "id", "sold_at", "fulfillment_status", "payment_status", "tracking_number", "shipping_carrier",
             "buyer_name", "ship_street", "ship_zip", "ship_city", "ship_country",
             "ebay_username", "ebay_order_id", "return_note", "cancellation",
             "items", "total_revenue", "total_profit", "created_at",
@@ -71,9 +73,10 @@ class OrderSerializer(serializers.ModelSerializer):
         return CancellationSerializer(cancellation).data if cancellation else None
 
     def validate(self, data):
-        """Reject items that exceed the available stock of their product."""
+        """Reject over-booked items and shipping an eBay order by hand."""
         if "items" in data:
             _check_stock(data["items"], self.instance)
+        _check_marketplace_shipping(self.instance, data.get("fulfillment_status"))
         return data
 
     @transaction.atomic
@@ -97,6 +100,16 @@ class OrderSerializer(serializers.ModelSerializer):
             _create_items(instance, items)
             sync_stock(instance, sign=-1)
         return instance
+
+
+def _check_marketplace_shipping(order, new_status):
+    """Reject marking a marketplace order shipped by hand; the marketplace must be told instead."""
+    if order is None or not order.ebay_order_id or new_status in (None, order.fulfillment_status):
+        return
+    shipped, delivered = Order.Fulfillment.SHIPPED, Order.Fulfillment.DELIVERED
+    skips_shipping = new_status == delivered and order.fulfillment_status != shipped
+    if new_status == shipped or skips_shipping:
+        raise serializers.ValidationError(SHIP_VIA_MARKETPLACE)
 
 
 def _create_items(order, items):

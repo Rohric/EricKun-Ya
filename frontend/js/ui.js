@@ -1,18 +1,28 @@
 "use strict";
 
+// Display names of the listing states the backend reports (used on several pages).
+const LISTING_STATE_LABELS = {
+  none: "Nicht inseriert", draft: "Entwurf", online: "Online",
+  changed: "Geändert", ended: "Beendet", error: "Fehler",
+};
+const PAYMENT_LABELS = { paid: "Bezahlt", pending: "Zahlung offen" };
+const FULFILLMENT_LABELS = {
+  open: "Offen", packed: "Verpackt", shipped: "Verschickt",
+  delivered: "Zugestellt", in_return: "In Reklamation", cancelled: "Storniert",
+};
+
+// Main areas shown in the header; every other page is reached through the dashboard.
+const NAV_LINKS = [
+  ["dashboard.html", "Dashboard"],
+  ["products.html", "Artikel"],
+  ["ebay.html", "eBay"],
+];
+
 // Render the shared top navigation into the element with id "nav".
 function renderNav(active) {
   const nav = document.getElementById("nav");
   if (!nav) return;
-  const links = [
-    ["dashboard.html", "Dashboard"],
-    ["products.html", "Artikel"],
-    ["orders.html", "Bestellungen"],
-    ["warehouse.html", "Lager"],
-    ["finances.html", "Finanzen"],
-    ["ebay.html", "eBay"],
-  ];
-  const items = links.map(([href, label]) =>
+  const items = NAV_LINKS.map(([href, label]) =>
     `<a href="${href}" class="${href === active ? "active" : ""}">${label}</a>`
   ).join("");
   nav.innerHTML = `<div class="nav-inner">
@@ -21,11 +31,41 @@ function renderNav(active) {
       <button id="logout-btn" class="link-btn">Logout</button>
     </div>`;
   document.getElementById("logout-btn").addEventListener("click", logout);
+  if (!NAV_LINKS.some(([href]) => href === active)) renderBackLink();
+}
+
+// Put a link back to the dashboard above the content of pages that are not in the header.
+function renderBackLink() {
+  const page = document.querySelector("main.page");
+  if (!page || page.querySelector(".back-link")) return;
+  const link = document.createElement("a");
+  link.className = "back-link";
+  link.href = "dashboard.html";
+  link.textContent = "← Dashboard";
+  page.prepend(link);
+}
+
+// Render sub-tabs from [key, label] pairs into a container and call onSelect(key) on click.
+function renderTabs(containerId, tabs, activeKey, onSelect) {
+  const box = document.getElementById(containerId);
+  box.className = "tabs";
+  box.innerHTML = tabs.map(([key, label]) =>
+    `<button type="button" class="${key === activeKey ? "active" : ""}" data-tab="${key}">${label}</button>`
+  ).join("");
+  box.querySelectorAll("[data-tab]").forEach((btn) =>
+    btn.addEventListener("click", () => onSelect(btn.dataset.tab))
+  );
 }
 
 // Format a numeric value as euro currency.
 function formatEuro(value) {
   return Number(value || 0).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+}
+
+// Format a percentage with a comma as decimal separator; "–" if there is no value.
+function formatPercent(value) {
+  if (value == null || value === "") return "–";
+  return `${Number(value).toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`;
 }
 
 // Show a short status message in the element with id "message".

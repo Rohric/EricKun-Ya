@@ -27,7 +27,8 @@ function _ebayImportDue(lastSync) {
 
 // Return true if an import result contains anything worth showing.
 function ebayImportChanged(result) {
-  return Boolean(result) && (result.created > 0 || result.cancelled > 0 || result.unknown_skus.length > 0);
+  if (!result) return false;
+  return result.created > 0 || result.paid > 0 || result.cancelled > 0 || result.unknown_skus.length > 0;
 }
 
 // Turn an import result into a German sentence.
@@ -35,6 +36,7 @@ function ebayImportText(result) {
   if (!ebayImportChanged(result)) return "Keine neuen eBay-Verkäufe.";
   const parts = [];
   if (result.created) parts.push(`${result.created} neue${result.created === 1 ? "r Verkauf" : " Verkäufe"} von eBay`);
+  if (result.paid) parts.push(`${result.paid} Zahlung${result.paid === 1 ? "" : "en"} eingegangen`);
   if (result.cancelled) parts.push(`${result.cancelled} Storno von eBay übernommen`);
   if (result.unknown_skus.length) parts.push(`unbekannte Artikelnummer: ${result.unknown_skus.join(", ")}`);
   return `${parts.join(" · ")}.`;

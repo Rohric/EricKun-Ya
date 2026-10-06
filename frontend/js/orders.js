@@ -3,30 +3,28 @@
 requireAuth();
 renderNav("orders.html");
 
-const FULFILLMENT = {
-  open: "Offen", packed: "Verpackt", shipped: "Verschickt",
-  delivered: "Zugestellt", in_return: "In Reklamation", cancelled: "Storniert",
-};
 const CANCEL_SOURCES = { manual: "Manuell storniert", ebay: "Bei eBay storniert" };
 const SHIPPABLE = ["open", "packed"];
+const FILTER_IDS = { source: "filter-source", payment: "filter-payment", status: "filter-status" };
 
 let productsCache = [];
 let ordersCache = [];
 let currentPage = 1;
 let cancelOrderId = null;
-let shipOrderId = null;
-let carriersLoaded = false;
+let editedOrder = null;  // order shown in the form, null while creating
 
 document.getElementById("new-order-btn").addEventListener("click", _openNewForm);
 document.getElementById("ebay-import-btn").addEventListener("click", _importFromEbay);
 document.getElementById("cancel-order").addEventListener("click", _closeForm);
 document.getElementById("add-item").addEventListener("click", () => _addItemRow());
 document.getElementById("order-form").addEventListener("submit", _saveOrder);
-document.getElementById("o-status").addEventListener("change", _syncReturnNote);
+document.getElementById("o-status").addEventListener("change", _statusChanged);
 document.getElementById("confirm-cancel").addEventListener("click", _confirmCancel);
 document.getElementById("abort-cancel").addEventListener("click", _closeCancelModal);
-document.getElementById("ship-form").addEventListener("submit", _confirmShip);
-document.getElementById("abort-ship").addEventListener("click", _closeShipModal);
+document.getElementById("filter-reset").addEventListener("click", _resetFilters);
+Object.values(FILTER_IDS).forEach((id) =>
+  document.getElementById(id).addEventListener("change", _applyFilters)
+);
 
 init();
 
@@ -73,10 +71,29 @@ async function _importFromEbay() {
   button.disabled = false;
 }
 
-// --- Order list + paging ---
+// --- Filters, list and paging ---
+
+function _applyFilters() {
+  currentPage = 1;
+  loadOrders().catch((err) => showMessage(errorText(err)));
+}
+
+function _resetFilters() {
+  Object.values(FILTER_IDS).forEach((id) => { document.getElementById(id).value = ""; });
+  _applyFilters();
+}
+
+function _listQuery() {
+  const params = new URLSearchParams({ page: currentPage });
+  Object.entries(FILTER_IDS).forEach(([name, id]) => {
+    const value = inputValue(id);
+    if (value) params.set(name, value);
+  });
+  return params;
+}
 
 async function loadOrders() {
-  const data = await apiGet(`/orders/?page=${currentPage}`);
+  const data = await apiGet(`/orders/?${_listQuery()}`);
   ordersCache = data.results;
   _renderRows(ordersCache);
   renderPager("order-pager", data, currentPage, _goToPage);
@@ -93,6 +110,7 @@ function _renderRows(orders) {
       <td>${o.id}${o.ebay_order_id ? ' <span class="chip">eBay</span>' : ""}</td>
       <td>${_formatDate(o.sold_at)}</td>
       <td>${_statusCell(o)}</td>
+      <td>${_paymentBadge(o)}</td>
       <td>${escapeHtml(o.buyer_name) || "–"}</td>
       <td>${escapeHtml(o.ship_city) || "–"}</td>
       <td>${formatEuro(o.total_revenue)}</td>
@@ -101,14 +119,14 @@ function _renderRows(orders) {
       <td class="actions">${_rowActions(o)}</td>
     </tr>`).join("");
   document.getElementById("order-rows").innerHTML =
-    rows || `<tr><td colspan="9" class="empty">Noch keine Bestellungen.</td></tr>`;
+    rows || `<tr><td colspan="10" class="empty">Keine Bestellungen.</td></tr>`;
   _bindRowActions();
 }
 
 // Status badge plus tracking (shipped) or the cancellation reason (cancelled).
 function _statusCell(order) {
   const status = order.fulfillment_status;
-  const badge = `<span class="badge badge-${status}">${FULFILLMENT[status] || status}</span>`;
+  const badge = `<span class="badge badge-${status}">${FULFILLMENT_LABELS[status] || status}</span>`;
   return badge + _statusNote(order);
 }
 
@@ -122,12 +140,25 @@ function _statusNote(order) {
   return "";
 }
 
+function _paymentBadge(order) {
+  if (order.fulfillment_status === "cancelled") return "–";
+  const status = order.payment_status;
+  return `<span class="badge badge-pay-${status}">${PAYMENT_LABELS[status] || status}</span>`;
+}
+
 function _rowActions(order) {
   const edit = `<button data-edit="${order.id}" class="link-btn">Bearbeiten</button>`;
   if (order.fulfillment_status === "cancelled") return edit;
-  const canShip = order.ebay_order_id && SHIPPABLE.includes(order.fulfillment_status);
-  const ship = canShip ? `<button data-ship="${order.id}" class="link-btn">Versand melden</button>` : "";
-  return `${edit}${ship}<button data-cancel="${order.id}" class="link-btn danger">Storno</button>`;
+  return `${edit}${_shipButton(order)}<button data-cancel="${order.id}" class="link-btn danger">Storno</button>`;
+}
+
+// "Versand melden" exists for eBay orders that wait for shipping; it is locked until they are paid.
+function _shipButton(order) {
+  if (!order.ebay_order_id || !SHIPPABLE.includes(order.fulfillment_status)) return "";
+  if (order.payment_status !== "paid") {
+    return `<button class="link-btn" disabled title="Die Zahlung ist noch offen.">Versand melden</button>`;
+  }
+  return `<button data-ship="${order.id}" class="link-btn">Versand melden</button>`;
 }
 
 function _itemSummary(items) {
@@ -141,11 +172,19 @@ function _bindRowActions() {
   );
   bind("edit", _openEditForm);
   bind("cancel", _openCancelModal);
-  bind("ship", _openShipModal);
+  bind("ship", _reportShipment);
 }
 
 function _orderById(id) {
   return ordersCache.find((order) => order.id === Number(id));
+}
+
+function _reportShipment(order) {
+  openShipDialog(order, async () => {
+    _closeForm();
+    showMessage("Versand an eBay gemeldet.", false);
+    await loadOrders().catch((err) => showMessage(errorText(err)));
+  });
 }
 
 // --- Form ---
@@ -154,10 +193,11 @@ function _openNewForm() {
   if (!productsCache.length) return showMessage("Kein Artikel mit Bestand verfügbar.");
   const form = document.getElementById("order-form");
   form.reset();
+  editedOrder = null;
   document.getElementById("order-id").value = "";
   document.getElementById("item-rows").innerHTML = "";
-  document.getElementById("ebay-order-hint").style.display = "none";
   _setItemsEditable(true);
+  _applyEbayRules(null);
   _addItemRow();
   _syncReturnNote();
   form.style.display = "block";
@@ -166,9 +206,11 @@ function _openNewForm() {
 
 function _openEditForm(order) {
   const set = (id, value) => { document.getElementById(id).value = value ?? ""; };
+  editedOrder = order;
   set("order-id", order.id);
   set("o-sold-at", _toLocalInput(order.sold_at));
   set("o-status", order.fulfillment_status === "cancelled" ? "open" : order.fulfillment_status);
+  set("o-payment", order.payment_status);
   set("o-tracking", order.tracking_number);
   set("o-ebay", order.ebay_username);
   set("o-buyer", order.buyer_name);
@@ -177,11 +219,21 @@ function _openEditForm(order) {
   set("o-city", order.ship_city);
   set("o-country", order.ship_country);
   set("o-return-note", order.return_note);
-  document.getElementById("ebay-order-hint").style.display = order.ebay_order_id ? "block" : "none";
   _setItemsEditable(false);
+  _applyEbayRules(order);
   _syncReturnNote();
   document.getElementById("order-form").style.display = "block";
   showMessage("", false);
+}
+
+// eBay orders: payment and tracking come from eBay, "Zugestellt" needs a reported shipment first.
+function _applyEbayRules(order) {
+  const fromEbay = Boolean(order && order.ebay_order_id);
+  const wasShipped = Boolean(order) && ["shipped", "delivered"].includes(order.fulfillment_status);
+  document.getElementById("ebay-order-hint").style.display = fromEbay ? "block" : "none";
+  document.getElementById("o-payment").disabled = fromEbay;
+  document.getElementById("o-tracking").disabled = fromEbay;
+  document.querySelector('#o-status option[value="delivered"]').disabled = fromEbay && !wasShipped;
 }
 
 // Show the position editor when creating, the 'positions are fixed' hint when editing.
@@ -193,6 +245,19 @@ function _setItemsEditable(editable) {
 function _closeForm() {
   document.getElementById("order-form").reset();
   document.getElementById("order-form").style.display = "none";
+  editedOrder = null;
+}
+
+// Choosing "Verschickt" for an eBay order opens the shipment dialog instead of changing the status.
+function _statusChanged() {
+  const order = editedOrder;
+  const needsEbay = order && order.ebay_order_id && order.fulfillment_status !== "shipped";
+  if (needsEbay && inputValue("o-status") === "shipped") {
+    document.getElementById("o-status").value = order.fulfillment_status;
+    if (order.payment_status !== "paid") return showMessage("Die Zahlung ist noch offen – erst danach verschicken.");
+    return _reportShipment(order);
+  }
+  _syncReturnNote();
 }
 
 function _syncReturnNote() {
@@ -221,10 +286,9 @@ async function _createOrder() {
 }
 
 function _orderFields() {
-  return {
+  const fields = {
     sold_at: new Date(inputValue("o-sold-at")).toISOString(),
     fulfillment_status: inputValue("o-status"),
-    tracking_number: inputValue("o-tracking"),
     ebay_username: inputValue("o-ebay"),
     buyer_name: inputValue("o-buyer"),
     ship_street: inputValue("o-street"),
@@ -233,6 +297,8 @@ function _orderFields() {
     ship_country: inputValue("o-country"),
     return_note: inputValue("o-return-note"),
   };
+  if (editedOrder && editedOrder.ebay_order_id) return fields;  // payment and tracking come from eBay
+  return Object.assign(fields, { payment_status: inputValue("o-payment"), tracking_number: inputValue("o-tracking") });
 }
 
 // --- Positions (only when creating) ---
@@ -299,55 +365,6 @@ async function _confirmCancel() {
     _closeCancelModal();
     showMessage(errorText(err));
   }
-}
-
-// --- Ship modal (eBay orders) ---
-
-async function _openShipModal(order) {
-  shipOrderId = order.id;
-  _shipMessage("");
-  document.getElementById("ship-tracking").value = order.tracking_number || "";
-  document.getElementById("ship-modal").style.display = "flex";
-  if (!carriersLoaded) await _loadCarriers();
-}
-
-async function _loadCarriers() {
-  try {
-    const carriers = await apiGet("/ebay/carriers/");
-    document.getElementById("ship-carrier").innerHTML = carriers.map((c) =>
-      `<option value="${escapeHtml(c.code)}">${escapeHtml(c.name)}</option>`
-    ).join("");
-    carriersLoaded = true;
-  } catch (err) {
-    _shipMessage(errorText(err));
-  }
-}
-
-function _closeShipModal() {
-  shipOrderId = null;
-  document.getElementById("ship-modal").style.display = "none";
-}
-
-function _shipMessage(text) {
-  const box = document.getElementById("ship-message");
-  box.textContent = text;
-  box.style.display = text ? "block" : "none";
-}
-
-async function _confirmShip(e) {
-  e.preventDefault();
-  const payload = { carrier: inputValue("ship-carrier"), tracking_number: inputValue("ship-tracking") };
-  const button = document.getElementById("ship-submit");
-  button.disabled = true;
-  try {
-    await apiSend(`/ebay/orders/${shipOrderId}/ship/`, "POST", payload);
-    _closeShipModal();
-    showMessage("Versand an eBay gemeldet.", false);
-    await loadOrders();
-  } catch (err) {
-    _shipMessage(errorText(err));
-  }
-  button.disabled = false;
 }
 
 function _formatDate(iso) {

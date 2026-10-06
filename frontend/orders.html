@@ -31,6 +31,12 @@
             <option value="in_return">In Reklamation</option>
           </select>
         </label>
+        <label>Zahlung
+          <select id="o-payment">
+            <option value="paid">Bezahlt</option>
+            <option value="pending">Zahlung offen</option>
+          </select>
+        </label>
         <label>Käufername<input type="text" id="o-buyer" /></label>
         <label>eBay-Benutzername<input type="text" id="o-ebay" /></label>
         <label>Straße<input type="text" id="o-street" /></label>
@@ -52,8 +58,8 @@
         Positionen sind nach dem Anlegen fest – bei Änderungen die Bestellung stornieren und neu anlegen.
       </p>
       <p id="ebay-order-hint" class="hint" style="display:none">
-        Diese Bestellung stammt von eBay. Den Versand bitte über „Versand melden" eintragen, damit eBay
-        und der Käufer die Trackingnummer bekommen.
+        Diese Bestellung stammt von eBay. Zahlung und Tracking kommen von eBay; „Verschickt" wird über
+        „Versand melden" gesetzt, damit eBay und der Käufer die Trackingnummer bekommen.
       </p>
 
       <div class="form-actions">
@@ -62,10 +68,39 @@
       </div>
     </form>
 
+    <div class="filter-row">
+      <label>Herkunft
+        <select id="filter-source">
+          <option value="">Alle</option>
+          <option value="ebay">eBay</option>
+          <option value="manual">Manuell</option>
+        </select>
+      </label>
+      <label>Zahlung
+        <select id="filter-payment">
+          <option value="">Alle</option>
+          <option value="paid">Bezahlt</option>
+          <option value="pending">Zahlung offen</option>
+        </select>
+      </label>
+      <label>Status
+        <select id="filter-status">
+          <option value="">Alle</option>
+          <option value="open">Offen</option>
+          <option value="packed">Verpackt</option>
+          <option value="shipped">Verschickt</option>
+          <option value="delivered">Zugestellt</option>
+          <option value="in_return">In Reklamation</option>
+          <option value="cancelled">Storniert</option>
+        </select>
+      </label>
+      <button type="button" id="filter-reset" class="secondary">Filter zurücksetzen</button>
+    </div>
+
     <table class="data-table">
       <thead>
         <tr>
-          <th>#</th><th>Verkauft am</th><th>Status</th><th>Kunde</th><th>Ort</th>
+          <th>#</th><th>Verkauft am</th><th>Status</th><th>Zahlung</th><th>Kunde</th><th>Ort</th>
           <th>Umsatz</th><th>Gewinn</th><th>Positionen</th><th></th>
         </tr>
       </thead>
@@ -93,27 +128,12 @@
     </div>
   </div>
 
-  <div id="ship-modal" class="modal" style="display:none">
-    <form id="ship-form" class="modal-card">
-      <h3>Versand an eBay melden</h3>
-      <p class="hint">eBay markiert die Bestellung als verschickt und zeigt dem Käufer die Sendungsverfolgung.</p>
-      <div id="ship-message" class="message error" style="display:none"></div>
-      <label>Versanddienstleister<select id="ship-carrier" required></select></label>
-      <label>Trackingnummer (nur Buchstaben und Ziffern)
-        <input type="text" id="ship-tracking" required />
-      </label>
-      <div class="form-actions">
-        <button type="submit" id="ship-submit">Versand melden</button>
-        <button type="button" id="abort-ship" class="secondary">Abbrechen</button>
-      </div>
-    </form>
-  </div>
-
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/ebay-orders.js"></script>
+  <script src="js/ship-dialog.js"></script>
   <script src="js/orders.js"></script>
 </body>
 </html>

@@ -1,136 +1,145 @@
 # ebay_app
 
 Adapter **und** Zustandshalter für den Verkaufskanal eBay. Verbindet das Tool mit dem
-eBay-Verkäuferkonto, richtet es ein und stellt Artikel aus `products_app` bei eBay ein.
+eBay-Verkäuferkonto, richtet es ein, stellt Artikel aus `products_app` bei eBay ein und holt
+die Verkäufe zurück nach `orders_app`.
 
-> **Stand:** Verbindung (A), Einrichtung (B), Inserieren (C), Verkäufe/Versand (D) und die
-> Oberfläche (E) sind gebaut. Immer erst **Sandbox**, dann Production.
-> Echt gegen die Sandbox geprüft sind bisher die Kategorie-, Merkmal-, Zustands- und
-> Versanddienst-Abfragen; alle Aufrufe im Namen des Verkäufers sind nur mit nachgestellten
-> eBay-Antworten geprüft und warten auf den ersten echten Lauf.
+> **Stand:** Immer erst **Sandbox**, dann Production.
+> **Echt gegen die Sandbox bestätigt:** Verbinden, Rückgabe-/Zahlungsvorlage, Versandprofile,
+> Lagerort, Bild-Upload, Artikel, Angebot, Veröffentlichen, Synchronisieren, Löschen,
+> Preisvorschlag, Gebühren-Vorschau, Preis-/Verkaufsabruf.
+> **Nur mit nachgestellten eBay-Antworten geprüft:** Verkäufe abholen, eBay-Storno, Versand
+> melden – die Sandbox-Kasse legt keine Bestellungen an (siehe „Verkauf simulieren").
 
 ## Aufgaben
 
 - Mit dem eBay-Konto verbinden (OAuth 2.0 Authorization Code Grant) und die Verbindung halten
 - Tokens **verschlüsselt** speichern, den Access-Token (2 h) automatisch per Refresh-Token
   (18 Monate) erneuern
-- Business Policies (Versand, Rückgabe, Zahlung) anlegen bzw. aktualisieren
+- Vorlagen pflegen: mehrere **Versandprofile**, je eine Rückgabe- und Zahlungsvorlage
 - Den Standard-Lagerort als eBay-Inventory-Location übertragen
 - Artikel inserieren: eBay-Kategorie vorschlagen, Pflicht-Merkmale abfragen, Bilder bei eBay
-  hosten, Inventory Item und Offer anlegen, veröffentlichen
-- Inserate nach lokalen Änderungen synchronisieren, beenden und automatisch beenden, sobald
-  ein Artikel ausverkauft oder archiviert ist
-- eBay-Verkäufe als Bestellungen in `orders_app` anlegen, eBay-Stornos übernehmen
-- Versand mit Dienstleister und Trackingnummer an eBay melden
+  hosten, Artikel und Angebot anlegen, Gebühren vorab anzeigen, veröffentlichen
+- Inserate synchronisieren, beenden und automatisch beenden, sobald ein Artikel ausverkauft
+  oder archiviert ist
+- Zurücklesen, welchen Preis eBay dem Käufer zeigt und wie viel eBay als verkauft zählt
+- eBay-Verkäufe als Bestellungen anlegen (bezahlt oder mit offener Zahlung), Zahlungseingang
+  und eBay-Stornos übernehmen, Versand an eBay melden
 
 ## Models
 
 - **`EbayAccount`** (Singleton): verschlüsselte `access_token` / `refresh_token` mit
-  Ablaufzeiten, `connected_at`, `oauth_state` (+ Zeitstempel) für die Login-Prüfung,
-  `fulfillment_policy_id`, `return_policy_id`, `payment_policy_id`, `orders_synced_at`.
-  Berechnet: `is_connected`, `has_policies`.
+  Ablaufzeiten, `connected_at`, `oauth_state` (+ Zeitstempel), `return_policy_id`,
+  `payment_policy_id`, `orders_synced_at`. Berechnet: `is_connected`, `has_policies`
+  (Rückgabe + Zahlung + ein Standard-Versandprofil mit eBay-Vorlage).
 - **`EbayLocation`**: OneToOne zu `logistics_app.Warehouse`, `merchant_location_key`,
-  `last_synced`. Berechnet: `needs_resync` (Adresse nach der Übertragung geändert).
+  `last_synced`. Berechnet: `needs_resync`.
+- **`EbayShippingProfile`**: `name` (eindeutig), `shipping_service`, `shipping_cost`,
+  `handling_days`, `policy_id` (eBays Versandvorlage), `is_default`. Genau ein Profil ist Standard.
 - **`EbayListing`**: OneToOne zu `products_app.Product`, `category_id`, `category_name`,
-  `offer_id`, `listing_id`, `status` (Entwurf / Online / Beendet), `synced_quantity`,
-  `last_synced`, `sync_error`. Berechnet: `has_unsynced_changes` (Artikel nach der letzten
-  Übertragung geändert oder Menge weicht ab), `state` (Anzeige: Fehler und „geändert" gehen vor).
-- **`EbayCategoryMapping`**: OneToOne zu `products_app.Category`, `ebay_category_id`,
-  `ebay_category_name` – die zuletzt gewählte eBay-Kategorie je interner Kategorie
-  (Merkliste statt gespiegeltem eBay-Kategoriebaum).
+  `shipping_profile` (leer = Standard-Profil), `best_offer`, `offer_id`, `listing_id`, `status`
+  (Entwurf / Online / Beendet), `synced_quantity`, `last_synced`, `sync_error`, dazu von eBay
+  zurückgelesen: `ebay_price`, `sold_quantity`, `facts_synced_at`.
+  Berechnet: `has_unsynced_changes`, `state` (Anzeige: Fehler und „geändert" gehen vor).
+- **`EbayCategoryMapping`**: OneToOne zu `products_app.Category` – die zuletzt gewählte
+  eBay-Kategorie je interner Kategorie (Merkliste statt gespiegeltem eBay-Kategoriebaum).
 - **`EbayImage`**: OneToOne zu `products_app.ProductImage`, `eps_url`, `source_name`,
-  `expires_at` – merkt sich die von eBay gehostete Bild-URL, damit jede Datei nur einmal
-  hochgeladen wird.
+  `expires_at` – jede Bilddatei wird nur einmal zu eBay hochgeladen.
 
 ## Services / Logik
 
 - `client.py` – Basis-URLs je Umgebung (API, Media, Login, Webseite), Scopes, HTTP-Helper;
   eBay-/Netzwerkfehler → `EbayApiError` (mit eBays HTTP-Status in `http_status`)
 - `crypto.py` – Fernet-Verschlüsselung der Tokens (`EBAY_TOKEN_KEY`)
-- `services/oauth.py` – Consent-URL mit Zufalls-`state` (10 min gültig), eingefügte
-  Rücksprung-URL prüfen, Code gegen Tokens tauschen, automatische Erneuerung, `call()` für
-  alle Aufrufe im Namen des Verkäufers
-- `services/account.py` – Opt-in zu Business Policies, Versanddienste über die Metadata API
-  (je Code nur ein Eintrag), drei Policies anlegen oder aktualisieren (vorhandene mit gleichem
-  Namen werden wiederverwendet)
+- `services/oauth.py` – Consent-URL, Rücksprung-URL prüfen, Code tauschen, automatische
+  Erneuerung, `call()` für Aufrufe im Namen des Verkäufers, `get_app_token()` für öffentliche Daten
+- `services/account.py` – Opt-in zu Business Policies, Versanddienste (je Code ein Eintrag),
+  Rückgabe- und Zahlungsvorlage anlegen oder aktualisieren
+- `services/shipping_profiles.py` – Versandprofile mit ihrer eBay-Vorlage anlegen, ändern,
+  löschen (nicht das Standard-Profil, nicht solange ein Inserat es nutzt), Standard setzen
 - `services/locations.py` – Standard-Lagerort übertragen; nach einer Adressänderung mit
   neuem Key, weil eBay Adressen nicht ändern lässt
-- `services/taxonomy.py` – Kategorie-Vorschläge aus dem Titel, Pflicht- und empfohlene
-  Merkmale, erlaubte Zustände je Kategorie; alles 24 h im Cache
-- `services/conditions.py` – `Product.Condition` → eBay-Zustand. Viele Kategorien kennen nur
-  „Gebraucht"; dann wird darauf ausgewichen und unsere feinere Stufe als Zustandsnotiz mitgegeben
-- `services/images.py` – Bilddateien über die Media API zu eBay hochladen (die Desktop-App hat
-  keine öffentlichen URLs)
-- `services/listings.py` – `publish` (Kategorie + Merkmale speichern, übertragen,
-  veröffentlichen, Kategorie merken), `sync`, `withdraw`, `sync_all`, `end_if_unsellable`,
-  `remove_item`, `requirements`. Ein vorhandenes Offer zur SKU wird übernommen statt ein
-  zweites anzulegen; ob veröffentlicht werden muss, entscheidet eBays eigener Offer-Status
-- `services/orders.py` – `import_orders` (Fulfillment API `getOrders` seit dem letzten Abruf,
-  erster Lauf 90 Tage; neue bezahlte Bestellung → `Order` + Positionen + Bestand, bei eBay
-  storniert → `cancel_order`), `report_shipment` (`createShippingFulfillment`), `CARRIERS`.
-  Eine unbekannte SKU wird als Position ohne Artikel angelegt und im Ergebnis gemeldet
-- `services/overview.py` – Status für die Checkliste im Frontend
+- `services/taxonomy.py` – Kategorie-Vorschläge, Pflicht- und empfohlene Merkmale, erlaubte
+  Zustände; 24 h im Cache
+- `services/conditions.py` – `Product.Condition` → eBay-Zustand; viele Kategorien kennen nur
+  „Gebraucht", dann steht unsere feinere Stufe als Zustandsnotiz im Inserat
+- `services/images.py` – Bilddateien über die Media API zu eBay hochladen
+- `services/listings.py` – `publish`, `preview` (Gebühren ohne Veröffentlichen), `sync`,
+  `withdraw`, `sync_all`, `end_if_unsellable`, `remove_item`, `products_in_scope`,
+  `channel_states`. Ein vorhandenes Angebot zur SKU wird übernommen; ob veröffentlicht werden
+  muss, entscheidet eBays eigener Angebots-Status. eBays Ablehnungsgrund bleibt am Inserat stehen.
+- `services/facts.py` – liest nach jeder Übertragung und auf Knopfdruck den Käuferpreis
+  (Browse API) und eBays Verkaufszahl; ein Fehler dabei bricht nichts ab
+- `services/orders.py` – `import_orders` / `import_payloads` (neu → Bestellung, Bestand sofort
+  gebucht; bezahlt → Zahlungsstatus; storniert → `cancel_order`), `report_shipment`
+  (nur bezahlte, nicht stornierte eBay-Bestellungen), `CARRIERS`
+- `services/simulation.py` – simulierte Verkäufe, Zahlungen und Stornos für die Sandbox
+- `services/overview.py` – Status für Checkliste und Kennzahlen
 - `signals.py` – Artikel ausverkauft/archiviert → Inserat beenden; Artikel gelöscht →
-  Inventory Item bei eBay löschen. Läuft nach dem Commit, eBay-Fehler landen in `sync_error`
-  und blockieren das lokale Speichern nicht
+  Artikel bei eBay löschen. Läuft nach dem Commit; Fehler landen in `sync_error`
 - Fehler: `EbayApiError` (502), `EbayNotConnected` (409), `EbayNotConfigured` (503)
 
 **Warum die Rücksprung-URL eingefügt wird:** eBay akzeptiert als Rücksprung nur HTTPS und
-kein `localhost`. Nach dem eBay-Login kopiert man die Adresse aus der Browserleiste in die
-App – das funktioniert lokal und später in der Desktop-App.
+kein `localhost`. Nach dem eBay-Login kopiert man die Adresse aus der Browserleiste in die App.
+`EBAY_RUNAME` in der `.env` muss der von eBay erzeugte RuName sein, nicht der Anzeigename.
 
 **Synchronisation:** Änderungen gehen nicht automatisch zu eBay. Das Inserat wird als
 „geändert" markiert und per Button übertragen. Einzige Automatik: Bestand 0 oder archiviert
 beendet das Inserat.
 
+## Verkauf simulieren (nur Sandbox)
+
+Die Sandbox-Kasse legt oft keine Bestellung an. Aus `backend/`, venv aktiv:
+
+```
+python manage.py simulate_ebay_sale <SKU>                 # 1 Stück, bezahlt
+python manage.py simulate_ebay_sale <SKU> --quantity 2    # mehrere Stück
+python manage.py simulate_ebay_sale <SKU> --unpaid        # Zahlung offen
+python manage.py simulate_ebay_sale --pay <Bestell-ID>    # Zahlung einer simulierten Bestellung melden
+python manage.py simulate_ebay_sale --cancel <Bestell-ID> # wie ein eBay-Storno behandeln
+```
+
+- Die Bestellung (`SIM-…`) läuft durch `orders.import_payloads` – denselben Code wie der echte Abruf.
+- Nach einem Teilverkauf überträgt der Befehl die Restmenge an eBay; bei Menge 0 beendet das
+  Signal das Inserat.
+- „Versand melden" markiert simulierte Bestellungen nur lokal als verschickt, weil eBay sie
+  nicht kennt (`orders.is_simulated`).
+- Der Befehl bricht ab, wenn `EBAY_ENV` nicht `sandbox` ist.
+- Grenze: Ob eBays echtes Bestellformat der Dokumentation entspricht, zeigt erst ein echter Verkauf.
+
 ## API-Endpoints
 
 | Methode | Pfad | Zweck |
 |---|---|---|
-| GET | `/api/ebay/status/` | Umgebung, fehlende Einstellungen, Verbindung, Einrichtung, „bereit" |
+| GET | `/api/ebay/status/` | Umgebung, Verbindung, Einrichtung, „bereit", `orders_synced_at`, Inserat-Zähler |
 | POST | `/api/ebay/connect/start/` | Neue Anmeldung starten, liefert `consent_url` |
 | POST | `/api/ebay/connect/finish/` | Body `redirect_url`: Code tauschen, Tokens speichern |
 | POST | `/api/ebay/disconnect/` | Gespeicherte Tokens löschen |
 | GET | `/api/ebay/shipping-services/` | Inländische Versanddienste des Marktplatzes |
-| GET / PUT | `/api/ebay/policies/` | Policy-Werte lesen / alle drei Policies speichern |
+| GET / POST | `/api/ebay/shipping-profiles/` | Versandprofile (mit `listing_count`) / neues Profil samt eBay-Vorlage |
+| GET / PUT / PATCH / DELETE | `/api/ebay/shipping-profiles/<id>/` | Profil lesen, ändern, löschen |
+| POST | `/api/ebay/shipping-profiles/<id>/default/` | Als Standard festlegen |
+| GET / PUT | `/api/ebay/policies/` | Rückgabe-Werte lesen / Rückgabe- und Zahlungsvorlage speichern |
 | POST | `/api/ebay/location/sync/` | Standard-Lagerort an eBay übertragen |
 | GET | `/api/ebay/categories/suggest/?q=` | eBay-Kategorien zu einem Titel vorschlagen |
-| GET | `/api/ebay/categories/<id>/requirements/` | Merkmale und erlaubte Zustands-IDs einer Kategorie; `?product=<id>` ergänzt einen Zustands-Hinweis |
-| GET | `/api/ebay/listings/` | Verkaufbare Artikel mit Inserat-Status (`?page=` optional) |
-| POST | `/api/ebay/listings/<product_id>/publish/` | Body `category_id`, `category_name`, `aspects`: inserieren |
+| GET | `/api/ebay/categories/<id>/requirements/` | Merkmale und erlaubte Zustands-IDs; `?product=<id>` ergänzt einen Zustands-Hinweis |
+| GET | `/api/ebay/listings/?scope=` | Artikel mit Inserat: `all` (verkaufbare, Default), `listed`, `unlisted` |
+| GET | `/api/ebay/listing-states/` | `{Artikel-ID: [Kanal-Einträge]}` für die Spalte „Kanäle" der Artikelseite |
+| POST | `/api/ebay/listings/<product_id>/publish/` | Body `category_id`, `category_name`, `aspects`, `shipping_profile`, `best_offer` |
+| POST | `/api/ebay/listings/<product_id>/preview/` | Gleicher Body; überträgt unveröffentlicht und liefert `fees`, `total` |
 | POST | `/api/ebay/listings/<product_id>/sync/` | Aktuellen Stand übertragen; beendetes Inserat geht wieder online |
 | POST | `/api/ebay/listings/<product_id>/withdraw/` | Inserat beenden |
-| POST | `/api/ebay/listings/sync-all/` | Alle geänderten Inserate übertragen, liefert `synced` / `failed` |
-| POST | `/api/ebay/orders/import/` | eBay-Verkäufe abholen, liefert `created` / `cancelled` / `unknown_skus` |
-| POST | `/api/ebay/orders/<order_id>/ship/` | Body `carrier`, `tracking_number`: Versand an eBay melden |
+| POST | `/api/ebay/listings/sync-all/` | Alle geänderten Inserate übertragen (`synced` / `failed`) |
+| POST | `/api/ebay/listings/refresh/` | Käuferpreis und Verkaufszahl aller Online-Inserate neu lesen |
+| POST | `/api/ebay/orders/import/` | Verkäufe abholen (`created` / `paid` / `cancelled` / `unknown_skus`) |
+| POST | `/api/ebay/orders/<order_id>/ship/` | Body `carrier`, `tracking_number`: Versand melden |
 | GET | `/api/ebay/carriers/` | Versanddienstleister für die Versandmeldung |
 
 `aspects` hat die Form `{"Marke": ["Nintendo"], "Farbe": ["Schwarz"]}` und wird im
 `Product.aspects` gespeichert.
 
-## Verkauf simulieren (nur Sandbox)
-
-Die Sandbox-Kasse legt oft keine Bestellung an. Damit sich der Ablauf nach einem Verkauf trotzdem
-testen lässt, gibt es einen eigenen Befehl (aus `backend/`, venv aktiv):
-
-```
-python manage.py simulate_ebay_sale <SKU>                # 1 Stück verkaufen
-python manage.py simulate_ebay_sale <SKU> --quantity 2   # mehrere Stück
-python manage.py simulate_ebay_sale --cancel <Bestell-ID> # simulierte Bestellung wie ein eBay-Storno behandeln
-```
-
-- `services/simulation.py` baut eine Bestellung im Format von eBays `getOrders` (Bestellnummer
-  `SIM-…`, Beispiel-Käufer) und gibt sie an `orders.import_payloads` – denselben Code, den der
-  echte Abruf benutzt.
-- Nach einem Teilverkauf überträgt der Befehl die Restmenge an eBay (echtes eBay senkt sie selbst);
-  bei Menge 0 beendet das Signal das Inserat.
-- Der Befehl bricht ab, wenn `EBAY_ENV` nicht `sandbox` ist, die SKU unbekannt ist oder der
-  Bestand nicht reicht.
-- Grenzen: Bei eBay entsteht keine Bestellung; „Versand melden" scheitert deshalb für simulierte
-  Bestellungen. Ob eBays echtes Format der Dokumentation entspricht, zeigt erst ein echter Verkauf.
-
-**Nicht enthalten:** Storno oder Erstattung **an** eBay senden. Eine eBay-Bestellung wird bei
-eBay storniert; der nächste Abruf übernimmt das Storno und bucht den Bestand zurück.
+**Nicht enthalten:** Storno oder Erstattung **an** eBay senden (eBay-Bestellungen werden bei
+eBay storniert, der nächste Abruf übernimmt das), echte eBay-Gebühren, Käufernachrichten.
 
 ## Verbindungen
 
@@ -141,10 +150,11 @@ eBay storniert; der nächste Abruf übernimmt das Storno und bucht den Bestand z
 
 ## Dateien
 
-- `models.py` – `EbayAccount`, `EbayLocation`, `EbayListing`, `EbayCategoryMapping`, `EbayImage`
+- `models.py` – `EbayAccount`, `EbayLocation`, `EbayShippingProfile`, `EbayListing`,
+  `EbayCategoryMapping`, `EbayImage`
 - `client.py`, `crypto.py`, `exceptions.py`, `signals.py`
-- `services/` – `oauth.py`, `account.py`, `locations.py`, `taxonomy.py`, `conditions.py`,
-  `images.py`, `listings.py`, `orders.py`, `simulation.py`, `overview.py`
-- `management/commands/simulate_ebay_sale.py` – Befehl zum Simulieren eines Verkaufs
+- `services/` – `oauth.py`, `account.py`, `shipping_profiles.py`, `locations.py`, `taxonomy.py`,
+  `conditions.py`, `images.py`, `listings.py`, `facts.py`, `orders.py`, `simulation.py`, `overview.py`
+- `management/commands/simulate_ebay_sale.py` – Befehl zum Simulieren von Verkäufen
 - `api/serializers.py`, `api/views.py`, `api/urls.py`
-- `admin.py` – Verbindung, Lagerort-Keys, Inserate, gehostete Bilder (Tokens werden nie angezeigt)
+- `admin.py` – Verbindung, Lagerort, Versandprofile, Inserate, Merkliste, gehostete Bilder
